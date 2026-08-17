@@ -4,6 +4,7 @@ import 'package:ai_capo/models/config.dart';
 import 'package:ai_capo/exceptions/exceptions.dart';
 import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
+import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
@@ -70,6 +71,24 @@ class AnthropicProvider implements AIProvider {
     if (options.topP != null) body['top_p'] = options.topP;
     if (options.topK != null) body['top_k'] = options.topK;
     if (options.stop != null) body['stop_sequences'] = options.stop;
+    if (options.responseFormat != null) {
+      final format = options.responseFormat!;
+      switch (format.type) {
+        case ResponseFormatType.jsonObject:
+          throw const AIModelNotSupportedException(
+            'Anthropic structured output requires a JSON schema. '
+            'Use ResponseFormatType.jsonSchema instead.',
+            provider: 'anthropic',
+          );
+        case ResponseFormatType.jsonSchema:
+          body['output_config'] = {
+            'format': {
+              'type': 'json_schema',
+              'schema': format.schema,
+            },
+          };
+      }
+    }
     if (options.customParameters != null) {
       body.addAll(options.customParameters!);
     }

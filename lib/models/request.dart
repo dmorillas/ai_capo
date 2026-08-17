@@ -1,3 +1,5 @@
+import 'package:ai_capo/models/response_format.dart';
+
 class ChatCompletionRequest {
   final String model;
   final double? temperature;
@@ -8,7 +10,7 @@ class ChatCompletionRequest {
   final double? frequencyPenalty;
   final double? presencePenalty;
   final int? seed;
-  final String? responseFormat;
+  final ResponseFormat? responseFormat;
   final Map<String, dynamic>? customParameters;
 
   const ChatCompletionRequest({

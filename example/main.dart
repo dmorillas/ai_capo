@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:ai_capo/models/config.dart';
 import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
+import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/providers/provider_type.dart';
 import 'package:flutter/material.dart';
 import 'package:ai_capo/ai_capo.dart';
@@ -61,8 +63,7 @@ class _AICapoDemoState extends State<AICapoDemo> {
         messages: [ChatMessage.user(_promptController.text)],
         options: ChatCompletionRequest(
           model: _model,
-          temperature: 0.7,
-          maxTokens: 500,
+          temperature: 1,
         ),
       );
 
@@ -95,8 +96,7 @@ class _AICapoDemoState extends State<AICapoDemo> {
         messages: [ChatMessage.user(_promptController.text)],
         options: ChatCompletionRequest(
           model: _model,
-          temperature: 0.7,
-          maxTokens: 500,
+          temperature: 1,
         ),
       )) {
         setState(() {
@@ -109,6 +109,63 @@ class _AICapoDemoState extends State<AICapoDemo> {
       });
     } finally {
       setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _generateStructuredOutput() async {
+    if (_promptController.text.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+      _response = '';
+    });
+
+    try {
+      final provider = _client.getProvider(
+        ProviderType.fromId(_provider),
+        _config,
+      );
+      final response = await provider.chatCompletion(
+        messages: [
+          ChatMessage.system('You are a helpful assistant. Always respond with valid JSON.'),
+          ChatMessage.user(_promptController.text),
+        ],
+        options: ChatCompletionRequest(
+          model: _model,
+          temperature: 1,
+          responseFormat: ResponseFormat(
+            type: ResponseFormatType.jsonSchema,
+            name: 'response',
+            strict: true,
+            schema: {
+              'type': 'object',
+              'properties': {
+                'summary': {'type': 'string'},
+                'sentiment': {'type': 'string', 'enum': ['positive', 'negative', 'neutral']},
+                'keywords': {
+                  'type': 'array',
+                  'items': {'type': 'string'},
+                },
+              },
+              'required': ['summary', 'sentiment', 'keywords'],
+              'additionalProperties': false,
+            },
+          ),
+        ),
+      );
+
+      final content = response.choices.first.content ?? '';
+      final prettyJson = const JsonEncoder.withIndent('  ').convert(jsonDecode(content));
+
+      setState(() {
+        _response = prettyJson;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _response = 'Error: $e';
         _isLoading = false;
       });
     }
@@ -159,16 +216,21 @@ class _AICapoDemoState extends State<AICapoDemo> {
               ),
             ),
             const SizedBox(height: 16),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 ElevatedButton(
                   onPressed: _isLoading ? null : _generateResponse,
                   child: const Text('Generate'),
                 ),
-                const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: _isLoading ? null : _generateStreamResponse,
                   child: const Text('Stream'),
+                ),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _generateStructuredOutput,
+                  child: const Text('Structured'),
                 ),
               ],
             ),

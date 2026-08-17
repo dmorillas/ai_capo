@@ -7,6 +7,7 @@ import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
+import 'package:ai_capo/providers/openai_compatible.dart';
 
 class MistralProvider implements AIProvider {
   final String _baseUrl = 'https://api.mistral.ai/v1';
@@ -45,7 +46,9 @@ class MistralProvider implements AIProvider {
     if (options.topP != null) body['top_p'] = options.topP;
     if (options.seed != null) body['random_seed'] = options.seed;
     if (options.stop != null) body['stop'] = options.stop;
-    if (options.responseFormat != null) body['response_format'] = {'type': options.responseFormat};
+    if (options.responseFormat != null) {
+      body['response_format'] = openAICompatibleResponseFormat(options.responseFormat!);
+    }
     if (options.customParameters != null) {
       body.addAll(options.customParameters!);
     }

@@ -8,6 +8,7 @@ import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
+import 'package:ai_capo/providers/openai_compatible.dart';
 
 class DeepSeekProvider implements AIProvider {
   final String _baseUrl = 'https://api.deepseek.com/v1';
@@ -48,7 +49,9 @@ class DeepSeekProvider implements AIProvider {
     if (options.presencePenalty != null) body['presence_penalty'] = options.presencePenalty;
     if (options.stop != null) body['stop'] = options.stop;
     if (options.seed != null) body['seed'] = options.seed;
-    if (options.responseFormat != null) body['response_format'] = {'type': options.responseFormat};
+    if (options.responseFormat != null) {
+      body['response_format'] = openAICompatibleResponseFormat(options.responseFormat!);
+    }
     if (options.customParameters != null) body.addAll(options.customParameters!);
 
     return body;

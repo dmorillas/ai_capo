@@ -8,6 +8,7 @@ A unified Flutter/Dart API for multiple Generative AI providers. AI Capo simplif
 - **Unified Interface**: All providers implement the same `AIProvider` abstraction.
 - **Streaming**: Full streaming support for real-time responses.
 - **Lazy Initialization**: Providers are created on first request and cached.
+- **Structured Output**: JSON Schema enforcement via `ResponseFormat` across all providers.
 
 ## Getting Started
 
@@ -45,6 +46,7 @@ final provider = client.getProvider(ProviderType.openai, config);
 final response = await provider.chatCompletion(
   messages: [ChatMessage.user('What is Flutter?')],
   options: const ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
     temperature: 0.7,
     maxTokens: 500,
   ),
@@ -69,7 +71,7 @@ final provider = client.getProvider(ProviderType.openai, config);
 
 await for (final chunk in provider.streamChatCompletion(
   messages: [ChatMessage.user('Write a short poem.')],
-  options: const ChatCompletionRequest(temperature: 0.8),
+  options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07', temperature: 0.8),
 )) {
   print(chunk.content);
 }
@@ -86,6 +88,70 @@ final response = await provider.chatCompletion(
   ],
 );
 ```
+
+---
+
+## Structured Output
+
+Structured output lets you enforce a JSON schema on the model's response. Use the `ResponseFormat` model via `responseFormat`. Each provider translates it into its own wire format (`response_format` for OpenAI/DeepSeek/Mistral, `output_config` for Anthropic, `responseJsonSchema` for Google, `format` for Ollama).
+
+### JSON object mode
+
+Pass `ResponseFormatType.jsonObject` to request plain JSON output:
+
+```dart
+final response = await provider.chatCompletion(
+  messages: [ChatMessage.user('List 3 colors.')],
+  options: ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
+    responseFormat: const ResponseFormat(type: ResponseFormatType.jsonObject),
+  ),
+);
+
+// response.choices.first.content is a JSON string
+```
+
+Supported by: OpenAI, DeepSeek, Mistral, Ollama, Google.
+Anthropic does not support schema-less JSON output — use `jsonSchema` instead.
+
+### JSON Schema mode
+
+Pass `ResponseFormatType.jsonSchema` with a `schema`:
+
+```dart
+final response = await provider.chatCompletion(
+  messages: [
+    ChatMessage.system('Extract info from the text.'),
+    ChatMessage.user('The iPhone 16 costs $999 and was released in September 2024.'),
+  ],
+  options: ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
+    responseFormat: ResponseFormat(
+      type: ResponseFormatType.jsonSchema,
+      name: 'product_info',
+      strict: true,
+      schema: {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string'},
+          'price': {'type': 'number'},
+          'release_date': {'type': 'string'},
+        },
+        'required': ['name', 'price', 'release_date'],
+        'additionalProperties': false,
+      },
+    ),
+  ),
+);
+
+print(response.choices.first.content);
+```
+
+Supported by: OpenAI, DeepSeek, Mistral, Ollama, Google, Anthropic.
+
+`name` and `strict` are optional and only used by providers that support them. `schema` is required when `type` is `jsonSchema`; passing a null schema throws an `ArgumentError`.
+
+---
 
 ## **Contribution**
 

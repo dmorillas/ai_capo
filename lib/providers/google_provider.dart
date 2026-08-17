@@ -4,6 +4,7 @@ import 'package:ai_capo/models/config.dart';
 import 'package:ai_capo/exceptions/exceptions.dart';
 import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
+import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
@@ -20,9 +21,9 @@ class GoogleProvider implements AIProvider {
     : _client = client ?? http.Client(),
       _firebaseAI = FirebaseAI.vertexAI(location: "global");
 
-  @override
-  Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
-    final generationConfig = GenerationConfig(
+  GenerationConfig _generationConfig(ChatCompletionRequest options) {
+    final format = options.responseFormat;
+    return GenerationConfig(
       stopSequences: options.stop,
       maxOutputTokens: options.maxTokens ?? config.defaultMaxTokens,
       temperature: options.temperature,
@@ -30,7 +31,16 @@ class GoogleProvider implements AIProvider {
       topK: options.topK,
       presencePenalty: options.presencePenalty,
       frequencyPenalty: options.frequencyPenalty,
+      responseMimeType: format != null ? 'application/json' : null,
+      responseJsonSchema: format != null && format.type == ResponseFormatType.jsonSchema
+          ? format.schema
+          : null,
     );
+  }
+
+  @override
+  Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
+    final generationConfig = _generationConfig(options);
 
     final systemMessage = messages.where((message) => message.role == MessageRole.system).firstOrNull?.content;
     final ai = _firebaseAI.generativeModel(
@@ -62,15 +72,7 @@ class GoogleProvider implements AIProvider {
 
   @override
   Stream<ChatCompletionStreamResponse> streamChatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async* {
-    final generationConfig = GenerationConfig(
-      stopSequences: options.stop,
-      maxOutputTokens: options.maxTokens ?? config.defaultMaxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      topK: options.topK,
-      presencePenalty: options.presencePenalty,
-      frequencyPenalty: options.frequencyPenalty,
-    );
+    final generationConfig = _generationConfig(options);
 
     final systemMessage = messages.where((message) => message.role == MessageRole.system).firstOrNull?.content;
     final ai = _firebaseAI.generativeModel(

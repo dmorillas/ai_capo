@@ -4,6 +4,7 @@ import 'package:ai_capo/models/config.dart';
 import 'package:ai_capo/exceptions/exceptions.dart';
 import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
+import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
@@ -34,6 +35,13 @@ class OllamaProvider implements AIProvider {
     if (options.topK != null) body['options']['top_k'] = options.topK;
     if (options.stop != null) body['options']['stop'] = options.stop;
     if (options.seed != null) body['options']['seed'] = options.seed;
+    if (options.responseFormat != null) {
+      final format = options.responseFormat!;
+      body['format'] = switch (format.type) {
+        ResponseFormatType.jsonObject => 'json',
+        ResponseFormatType.jsonSchema => format.schema,
+      };
+    }
     if (options.customParameters != null) {
       body.addAll(options.customParameters!);
     }

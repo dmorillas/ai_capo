@@ -1,6 +1,7 @@
 import 'package:ai_capo/exceptions/exceptions.dart';
 import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
+import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/models/config.dart';
@@ -138,7 +139,7 @@ void main() {
     });
 
     test('supports all optional fields', () {
-      const options = ChatCompletionRequest(
+      final options = ChatCompletionRequest(
         model: 'gpt-4',
         temperature: 0.7,
         maxTokens: 500,
@@ -148,7 +149,12 @@ void main() {
         frequencyPenalty: 0.5,
         presencePenalty: 0.5,
         seed: 42,
-        responseFormat: 'json',
+        responseFormat: ResponseFormat(
+          type: ResponseFormatType.jsonSchema,
+          name: 'response',
+          strict: true,
+          schema: {'type': 'object'},
+        ),
       );
 
       expect(options.model, equals('gpt-4'));
@@ -160,7 +166,34 @@ void main() {
       expect(options.frequencyPenalty, equals(0.5));
       expect(options.presencePenalty, equals(0.5));
       expect(options.seed, equals(42));
-      expect(options.responseFormat, equals('json'));
+      expect(options.responseFormat?.type, equals(ResponseFormatType.jsonSchema));
+      expect(options.responseFormat?.name, equals('response'));
+      expect(options.responseFormat?.strict, isTrue);
+    });
+  });
+
+  group('ResponseFormat', () {
+    test('jsonObject does not require a schema', () {
+      final format = ResponseFormat(type: ResponseFormatType.jsonObject);
+
+      expect(format.type, equals(ResponseFormatType.jsonObject));
+      expect(format.schema, isNull);
+    });
+
+    test('jsonSchema stores the schema', () {
+      final format = ResponseFormat(
+        type: ResponseFormatType.jsonSchema,
+        schema: {'type': 'object'},
+      );
+
+      expect(format.schema, equals({'type': 'object'}));
+    });
+
+    test('jsonSchema throws when schema is null', () {
+      expect(
+        () => ResponseFormat(type: ResponseFormatType.jsonSchema),
+        throwsArgumentError,
+      );
     });
   });
 

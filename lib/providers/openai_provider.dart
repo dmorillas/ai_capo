@@ -8,6 +8,7 @@ import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
+import 'package:ai_capo/providers/openai_compatible.dart';
 
 class OpenAIProvider implements AIProvider {
   final String _baseUrl = 'https://api.openai.com/v1';
@@ -39,7 +40,7 @@ class OpenAIProvider implements AIProvider {
     final body = <String, dynamic>{
       'model': options.model,
       'messages': messages.map((m) => m.toJson()).toList(),
-      'max_tokens': options.maxTokens ?? config.defaultMaxTokens,
+      'max_completion_tokens': options.maxTokens ?? config.defaultMaxTokens,
     };
 
     if (options.temperature != null) body['temperature'] = options.temperature;
@@ -48,7 +49,9 @@ class OpenAIProvider implements AIProvider {
     if (options.presencePenalty != null) body['presence_penalty'] = options.presencePenalty;
     if (options.stop != null) body['stop'] = options.stop;
     if (options.seed != null) body['seed'] = options.seed;
-    if (options.responseFormat != null) body['response_format'] = {'type': options.responseFormat};
+    if (options.responseFormat != null) {
+      body['response_format'] = openAICompatibleResponseFormat(options.responseFormat!);
+    }
     if (options.customParameters != null) body.addAll(options.customParameters!);
 
     return body;
