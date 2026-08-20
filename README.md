@@ -1,7 +1,7 @@
 # AI Capo: AI Client API Provider Orchestrator
 
 <p align="center">
-  <img src="ai_capo.png" alt="AI Capo" width="400"/>
+  <img src="https://raw.githubusercontent.com/dmorillas/ai_capo/refs/heads/main/ai_capo.png" alt="AI Capo" width="400"/>
 </p>
 
 A unified Flutter/Dart API for multiple Generative AI providers. AI Capo simplifies LLM integration by providing a clean, pluggable architecture for OpenAI, Anthropic Claude, Google Gemini, Ollama, Mistral, and DeepSeek.
