@@ -159,8 +159,6 @@ class AnthropicProvider implements AIProvider {
         );
       }
 
-      String accumulatedContent = '';
-
       await for (final chunk in streamedResponse.stream.transform(utf8.decoder)) {
         for (final line in chunk.split('\n')) {
           if (line.trim().isEmpty || !line.startsWith('data:')) continue;
@@ -179,7 +177,6 @@ class AnthropicProvider implements AIProvider {
             if (json['type'] == 'content_block_delta') {
               final delta = json['delta'] as Map<String, dynamic>?;
               final text = delta?['text'] as String? ?? '';
-              accumulatedContent += text;
               yield ChatCompletionStreamResponse(
                 content: text,
                 isComplete: false,

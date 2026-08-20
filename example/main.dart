@@ -40,7 +40,7 @@ class _AICapoDemoState extends State<AICapoDemo> {
   final TextEditingController _promptController = TextEditingController();
   String _response = '';
   bool _isLoading = false;
-  String _selectedProvider = 'openai:gpt-5-mini-2025-08-07';
+  final String _selectedProvider = 'openai:gpt-5-mini-2025-08-07';
   String _provider = 'openai';
   String _model = 'gpt-5-mini-2025-08-07';
 
@@ -184,7 +184,7 @@ class _AICapoDemoState extends State<AICapoDemo> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             DropdownButtonFormField<String>(
-              value: _selectedProvider,
+              initialValue: _selectedProvider,
               decoration: const InputDecoration(
                 labelText: 'Provider',
                 border: OutlineInputBorder(),
