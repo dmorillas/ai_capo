@@ -1,11 +1,7 @@
 import 'dart:convert';
-import 'package:ai_capo/models/config.dart';
-import 'package:ai_capo/models/message.dart';
-import 'package:ai_capo/models/request.dart';
-import 'package:ai_capo/models/response_format.dart';
-import 'package:ai_capo/providers/provider_type.dart';
-import 'package:flutter/material.dart';
+
 import 'package:ai_capo/ai_capo.dart';
+import 'package:flutter/material.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,13 +55,10 @@ class _AICapoDemoState extends State<AICapoDemo> {
         ProviderType.fromId(_provider),
         _config,
       );
-      final response = await provider.chatCompletion(
-        messages: [ChatMessage.user(_promptController.text)],
-        options: ChatCompletionRequest(
-          model: _model,
-          temperature: 1,
-        ),
-      );
+      final response = await provider
+          .chat(options: ChatCompletionRequest(model: _model, temperature: 1))
+          .withMessages([_promptController.text])
+          .complete();
 
       setState(() {
         _response = response.choices.first.content ?? '';
@@ -92,13 +85,13 @@ class _AICapoDemoState extends State<AICapoDemo> {
         ProviderType.fromId(_provider),
         _config,
       );
-      await for (final chunk in provider.streamChatCompletion(
-        messages: [ChatMessage.user(_promptController.text)],
-        options: ChatCompletionRequest(
-          model: _model,
-          temperature: 1,
-        ),
-      )) {
+      await for (final chunk
+          in provider
+              .chat(
+                options: ChatCompletionRequest(model: _model, temperature: 1),
+              )
+              .withMessages([_promptController.text])
+              .stream()) {
         setState(() {
           _response += chunk.content;
         });
@@ -127,34 +120,39 @@ class _AICapoDemoState extends State<AICapoDemo> {
         ProviderType.fromId(_provider),
         _config,
       );
-      final response = await provider.chatCompletion(
-        messages: [
-          ChatMessage.system('You are a helpful assistant. Always respond with valid JSON.'),
-          ChatMessage.user(_promptController.text),
-        ],
-        options: ChatCompletionRequest(
-          model: _model,
-          temperature: 1,
-          responseFormat: ResponseFormat(
-            type: ResponseFormatType.jsonSchema,
-            name: 'response',
-            strict: true,
-            schema: {
-              'type': 'object',
-              'properties': {
-                'summary': {'type': 'string'},
-                'sentiment': {'type': 'string', 'enum': ['positive', 'negative', 'neutral']},
-                'keywords': {
-                  'type': 'array',
-                  'items': {'type': 'string'},
+      final response = await provider
+          .chat(
+            options: ChatCompletionRequest(
+              model: _model,
+              temperature: 1,
+              responseFormat: ResponseFormat(
+                type: ResponseFormatType.jsonSchema,
+                name: 'response',
+                strict: true,
+                schema: {
+                  'type': 'object',
+                  'properties': {
+                    'summary': {'type': 'string'},
+                    'sentiment': {
+                      'type': 'string',
+                      'enum': ['positive', 'negative', 'neutral'],
+                    },
+                    'keywords': {
+                      'type': 'array',
+                      'items': {'type': 'string'},
+                    },
+                  },
+                  'required': ['summary', 'sentiment', 'keywords'],
+                  'additionalProperties': false,
                 },
-              },
-              'required': ['summary', 'sentiment', 'keywords'],
-              'additionalProperties': false,
-            },
-          ),
-        ),
-      );
+              ),
+            ),
+          )
+          .withSystemMessage(
+            'You are a helpful assistant. Always respond with valid JSON.',
+          )
+          .withMessages([_promptController.text])
+          .complete();
 
       final content = response.choices.first.content ?? '';
       final prettyJson = const JsonEncoder.withIndent('  ').convert(jsonDecode(content));
