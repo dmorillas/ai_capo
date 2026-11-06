@@ -1,6 +1,6 @@
 name: ai_capo
-description: "AI Client API Provider Orchestrator - A unified Flutter/Dart API for multiple Generative AI providers including OpenAI, Anthropic Claude, Google Gemini, Ollama, and Mistral. Simplifies LLM integration with a clean, extensible architecture."
-version: 1.0.0
+description: "AI Client API Provider Orchestrator - A unified Flutter/Dart API for multiple Generative AI providers including OpenAI, Anthropic Claude, Google Gemini, Ollama, and Mistral. "
+version: 1.1.0
 homepage: https://github.com/dmorillas/ai_capo
 repository: https://github.com/dmorillas/ai_capo
 issue_tracker: https://github.com/dmorillas/ai_capo/issues
@@ -20,16 +20,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  firebase_ai: ^3.12.2
-  firebase_core: ^4.10.0
-  http: ^1.2.0
-  meta: ^1.16.0
+  firebase_ai: ^5.1.0
+  firebase_core: ^5.1.0
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  lints: ^3.0.0
-  mockito: ^5.4.4
-  build_runner: ^2.4.8
+  lints: ^6.1.0
+  mockito: ^5.5.0
+  build_runner: ^2.15.1
 
 flutter:

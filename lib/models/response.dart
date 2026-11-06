@@ -1,3 +1,5 @@
+import 'package:ai_capo/models/tool.dart';
+
 class ChatCompletionResponse {
   final String? model;
   final String? provider;
@@ -20,10 +22,12 @@ class ChatCompletionChoice {
   final int index;
   final String? content;
   final String? finishReason;
+  final List<ToolCall>? toolCalls;
 
   const ChatCompletionChoice({
     required this.index,
     required this.content,
     required this.finishReason,
+    this.toolCalls,
   });
 }

@@ -13,6 +13,7 @@ A unified Flutter/Dart API for multiple Generative AI providers. AI Capo simplif
 - **Streaming**: Full streaming support for real-time responses.
 - **Lazy Initialization**: Providers are created on first request and cached.
 - **Structured Output**: JSON Schema enforcement via `ResponseFormat` across all providers.
+- **Tool Calling**: Define functions the model can call, control tool selection, and consume streamed tool-call deltas.
 
 ## Getting Started
 
@@ -20,7 +21,7 @@ Add `ai_capo` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ai_capo: ^1.0.0
+  ai_capo: ^1.1.0
 ```
 
 Run `flutter pub get`.
@@ -92,6 +93,153 @@ final response = await provider.chatCompletion(
   ],
 );
 ```
+
+---
+
+## Tool Calling
+
+Tool calling (also known as function calling) lets you describe functions the model may invoke. Pass the available tools via `tools` and, optionally, control selection with `toolChoice`.
+
+`Tool.parameters` is a map of **property name → JSON Schema** (not a full schema), and `Tool.required` lists the property names that must be provided.
+
+```dart
+import 'package:ai_capo/models/message.dart';
+import 'package:ai_capo/models/request.dart';
+import 'package:ai_capo/models/tool.dart';
+```
+
+### 1. Define tools and request a completion
+
+```dart
+final provider = client.getProvider(ProviderType.openai, config);
+
+final response = await provider.chatCompletion(
+  messages: [ChatMessage.user('What is the weather in Paris?')],
+  options: ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
+    tools: const [
+      Tool(
+        name: 'get_weather',
+        description: 'Get the current weather for a city.',
+        parameters: {
+          'location': {
+            'type': 'string',
+            'description': 'The city to get the weather for.',
+          },
+        },
+        required: ['location'],
+      ),
+    ],
+    toolChoice: ToolChoice.auto(),
+  ),
+);
+
+final toolCalls = response.choices.first.toolCalls;
+if (toolCalls != null) {
+  for (final call in toolCalls) {
+    print('${call.id}: ${call.function.name}(${call.function.arguments})');
+  }
+}
+```
+
+`FunctionCallResult.arguments` is a JSON-encoded string (for example `{"location":"Paris"}`).
+
+### 2. Send the tool result back
+
+Append the assistant's tool calls and a `ChatMessage.tool(...)` containing the result, then request a completion again:
+
+```dart
+final toolCall = response.choices.first.toolCalls!.first;
+
+final finalResponse = await provider.chatCompletion(
+  messages: [
+    ChatMessage.user('What is the weather in Paris?'),
+    ChatMessage.assistant('', toolCalls: response.choices.first.toolCalls),
+    ChatMessage.tool(
+      toolCallId: toolCall.id,
+      content: '{"temperature": 20}',
+    ),
+  ],
+  options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07'),
+);
+
+print(finalResponse.choices.first.content);
+```
+
+> For Google Gemini, the tool result `content` must be valid JSON, since it is decoded before being sent as a function response.
+
+### 3. Stream tool calls
+
+Streaming responses expose incremental `ToolCallDelta` objects on `chunk.toolCalls`. Accumulate them by `index` until the stream ends, then build the complete `ToolCall` list:
+
+```dart
+final indices = <int>{};
+final ids = <int, String>{};
+final names = <int, String>{};
+final args = <int, StringBuffer>{};
+
+await for (final chunk in provider.streamChatCompletion(
+  messages: [ChatMessage.user('What is the weather in Paris?')],
+  options: ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
+    tools: const [
+      Tool(
+        name: 'get_weather',
+        description: 'Get the current weather for a city.',
+        parameters: {
+          'location': {'type': 'string'},
+        },
+        required: ['location'],
+      ),
+    ],
+    toolChoice: ToolChoice.auto(),
+  ),
+)) {
+  for (final delta in chunk.toolCalls ?? const <ToolCallDelta>[]) {
+    indices.add(delta.index);
+    if (delta.id != null) ids[delta.index] = delta.id!;
+    if (delta.function?.name != null) {
+      names[delta.index] = delta.function!.name!;
+    }
+    final partial = delta.function?.arguments;
+    if (partial != null) {
+      (args[delta.index] ??= StringBuffer()).write(partial);
+    }
+  }
+}
+
+final toolCalls = indices.map((index) => ToolCall(
+  id: ids[index] ?? '',
+  function: FunctionCallResult(
+    name: names[index],
+    arguments: args[index]?.toString(),
+  ),
+)).toList();
+```
+
+Then send the results back exactly as in the non-streaming flow.
+
+### Tool choice
+
+| Value | Meaning |
+| --- | --- |
+| `ToolChoice.auto()` | The model decides whether to call a tool. |
+| `ToolChoice.none()` | The model must not call any tool. |
+| `ToolChoice.required()` | The model must call at least one tool. |
+| `ToolChoice.function('get_weather')` | The model must call the named tool. |
+
+### Provider support
+
+Tools are supported by all providers. `toolChoice` is honored by OpenAI, DeepSeek, Mistral and Anthropic; Ollama and Google Gemini accept `tools` but ignore `toolChoice`.
+
+| Provider | Tools | `toolChoice` | Streaming tool deltas |
+| --- | --- | --- | --- |
+| OpenAI | ✅ | ✅ | ✅ |
+| DeepSeek | ✅ | ✅ | ✅ |
+| Mistral | ✅ | ✅ | ✅ |
+| Anthropic | ✅ | ✅ | ✅ |
+| Ollama | ✅ | — | ✅ |
+| Google Gemini | ✅ | — | ✅ |
 
 ---
 

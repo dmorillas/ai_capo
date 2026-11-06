@@ -4,7 +4,9 @@ import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
+import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/models/config.dart';
+import 'package:ai_capo/providers/openai_compatible.dart';
 import 'package:ai_capo/providers/provider_type.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -68,29 +70,29 @@ void main() {
       expect(message.content, equals('Here is the answer.'));
     });
 
-    test('toJson returns correct map', () {
+    test('toMessage returns correct map', () {
       final message = ChatMessage.user('Test message');
 
-      final json = message.toJson();
+      final json = toMessage(message);
       expect(json['role'], equals('user'));
       expect(json['content'], equals('Test message'));
     });
 
-    test('toJson includes name when set', () {
+    test('toMessage includes name when set', () {
       final message = ChatMessage(
         role: MessageRole.user,
         content: 'Test message',
         name: 'test_user',
       );
 
-      final json = message.toJson();
+      final json = toMessage(message);
       expect(json['name'], equals('test_user'));
     });
 
-    test('toJson omits name when null', () {
+    test('toMessage omits name when null', () {
       final message = ChatMessage.user('Test message');
 
-      final json = message.toJson();
+      final json = toMessage(message);
       expect(json.containsKey('name'), isFalse);
     });
 
@@ -528,6 +530,381 @@ void main() {
       expect(rateEx, isA<AIException>());
       expect(netEx, isA<AIException>());
       expect(modelEx, isA<AIException>());
+    });
+  });
+
+  group('Tool', () {
+    test('creates with required name and defaults', () {
+      const tool = Tool(name: 'get_weather');
+
+      expect(tool.type, equals('function'));
+      expect(tool.name, equals('get_weather'));
+      expect(tool.description, isNull);
+      expect(tool.parameters, isNull);
+      expect(tool.required, isNull);
+      expect(tool.strict, isNull);
+    });
+
+    test('creates with all fields', () {
+      const tool = Tool(
+        name: 'get_weather',
+        description: 'Get the weather for a location',
+        parameters: {
+          'location': {'type': 'string'},
+        },
+        required: ['location'],
+        strict: true,
+      );
+
+      expect(tool.type, equals('function'));
+      expect(tool.name, equals('get_weather'));
+      expect(tool.description, equals('Get the weather for a location'));
+      expect(tool.parameters, equals({'location': {'type': 'string'}}));
+      expect(tool.required, equals(['location']));
+      expect(tool.strict, isTrue);
+    });
+
+    test('supports a custom type', () {
+      const tool = Tool(type: 'custom', name: 'test');
+
+      expect(tool.type, equals('custom'));
+    });
+  });
+
+  group('toTools', () {
+    test('serializes a tool into the OpenAI-compatible payload', () {
+      const tool = Tool(
+        name: 'get_weather',
+        description: 'Get weather',
+        parameters: {
+          'location': {'type': 'string'},
+        },
+        required: ['location'],
+      );
+
+      final payload = toTools([tool]);
+      expect(payload, hasLength(1));
+      expect(payload.first['type'], equals('function'));
+      expect(payload.first['function']['name'], equals('get_weather'));
+      expect(payload.first['function']['description'], equals('Get weather'));
+      expect(
+        payload.first['function']['parameters'],
+        equals({
+          'type': 'object',
+          'properties': {
+            'location': {'type': 'string'},
+          },
+          'required': ['location'],
+        }),
+      );
+    });
+
+    test('omits optional fields when absent', () {
+      const tool = Tool(name: 'ping');
+
+      final payload = toTools([tool]);
+      expect(payload.first['function'].containsKey('description'), isFalse);
+      expect(payload.first['function'].containsKey('parameters'), isFalse);
+      expect(payload.first.containsKey('strict'), isFalse);
+    });
+  });
+
+  group('ToolChoice', () {
+    test('auto serializes correctly', () {
+      const choice = ToolChoice.auto();
+      expect(toToolChoice(choice), equals('auto'));
+    });
+
+    test('none serializes correctly', () {
+      const choice = ToolChoice.none();
+      expect(toToolChoice(choice), equals('none'));
+    });
+
+    test('required serializes correctly', () {
+      const choice = ToolChoice.required();
+      expect(toToolChoice(choice), equals('required'));
+    });
+
+    test('function serializes correctly', () {
+      final choice = ToolChoice.function('get_weather');
+      expect(
+        toToolChoice(choice),
+        equals({
+          'type': 'function',
+          'function': {'name': 'get_weather'},
+        }),
+      );
+    });
+  });
+
+  group('ToolCall', () {
+    test('creates with required fields and defaults', () {
+      const toolCall = ToolCall(
+        id: 'call_123',
+        function: FunctionCallResult(
+          name: 'get_weather',
+          arguments: '{"location":"Paris"}',
+        ),
+      );
+
+      expect(toolCall.id, equals('call_123'));
+      expect(toolCall.type, equals('function'));
+      expect(toolCall.function.name, equals('get_weather'));
+      expect(toolCall.function.arguments, equals('{"location":"Paris"}'));
+      expect(toolCall.thoughtSignature, isNull);
+    });
+
+    test('supports nullable function fields', () {
+      const toolCall = ToolCall(
+        id: 'call_123',
+        function: FunctionCallResult(),
+      );
+
+      expect(toolCall.function.name, isNull);
+      expect(toolCall.function.arguments, isNull);
+    });
+
+    test('supports thought signature', () {
+      const toolCall = ToolCall(
+        id: 'call_123',
+        function: FunctionCallResult(name: 'get_weather'),
+        thoughtSignature: 'sig',
+      );
+
+      expect(toolCall.thoughtSignature, equals('sig'));
+    });
+  });
+
+  group('ToolCallDelta', () {
+    test('creates with required index and optional fields', () {
+      const delta = ToolCallDelta(
+        index: 0,
+        id: 'call_123',
+        type: 'function',
+        function: FunctionCallResult(
+          name: 'get_weather',
+          arguments: '{"location',
+        ),
+      );
+
+      expect(delta.index, equals(0));
+      expect(delta.id, equals('call_123'));
+      expect(delta.type, equals('function'));
+      expect(delta.function?.name, equals('get_weather'));
+      expect(delta.function?.arguments, equals('{"location'));
+      expect(delta.thoughtSignature, isNull);
+    });
+
+    test('creates with null function', () {
+      const delta = ToolCallDelta(index: 0);
+      expect(delta.index, equals(0));
+      expect(delta.function, isNull);
+    });
+  });
+
+  group('ChatMessage with tools', () {
+    test('creates tool message', () {
+      final message = ChatMessage.tool(
+        toolCallId: 'call_123',
+        content: '{"temperature": 22}',
+      );
+
+      expect(message.role, equals(MessageRole.tool));
+      expect(message.content, equals('{"temperature": 22}'));
+      expect(message.toolCallId, equals('call_123'));
+    });
+
+    test('tool message toMessage includes tool_call_id', () {
+      final message = ChatMessage.tool(
+        toolCallId: 'call_123',
+        content: '{"temp": 22}',
+      );
+
+      final json = toMessage(message);
+      expect(json['role'], equals('tool'));
+      expect(json['tool_call_id'], equals('call_123'));
+      expect(json['content'], equals('{"temp": 22}'));
+    });
+
+    test('assistant message with tool calls', () {
+      final message = ChatMessage.assistant(
+        '',
+        toolCalls: [
+          const ToolCall(
+            id: 'call_123',
+            function: FunctionCallResult(
+              name: 'get_weather',
+              arguments: '{"location":"Paris"}',
+            ),
+          ),
+        ],
+      );
+
+      expect(message.role, equals(MessageRole.assistant));
+      expect(message.toolCalls, isNotNull);
+      expect(message.toolCalls!.length, equals(1));
+      expect(message.toolCalls!.first.id, equals('call_123'));
+    });
+
+    test('assistant message with tool calls toMessage', () {
+      final message = ChatMessage.assistant(
+        'Let me check the weather.',
+        toolCalls: [
+          const ToolCall(
+            id: 'call_123',
+            function: FunctionCallResult(
+              name: 'get_weather',
+              arguments: '{"location":"Paris"}',
+            ),
+          ),
+        ],
+      );
+
+      final json = toMessage(message);
+      expect(json['role'], equals('assistant'));
+      expect(json['content'], equals('Let me check the weather.'));
+      expect(json['tool_calls'], isA<List>());
+      expect(json['tool_calls'].length, equals(1));
+      expect(json['tool_calls'][0]['id'], equals('call_123'));
+      expect(json['tool_calls'][0]['function']['name'], equals('get_weather'));
+    });
+
+    test('MessageRole fromString handles tool', () {
+      expect(MessageRole.fromString('tool'), equals(MessageRole.tool));
+    });
+  });
+
+  group('ChatCompletionRequest with tools', () {
+    test('creates with tools', () {
+      final request = ChatCompletionRequest(
+        model: 'gpt-4',
+        tools: [
+          const Tool(
+            name: 'get_weather',
+            description: 'Get weather',
+          ),
+        ],
+      );
+
+      expect(request.tools, isNotNull);
+      expect(request.tools!.length, equals(1));
+      expect(request.tools!.first.name, equals('get_weather'));
+    });
+
+    test('creates with toolChoice', () {
+      const request = ChatCompletionRequest(
+        model: 'gpt-4',
+        toolChoice: ToolChoice.auto(),
+      );
+
+      expect(request.toolChoice, isA<ToolChoiceAuto>());
+    });
+  });
+
+  group('ChatCompletionChoice with tools', () {
+    test('creates with toolCalls', () {
+      const choice = ChatCompletionChoice(
+        index: 0,
+        content: null,
+        finishReason: 'tool_calls',
+        toolCalls: [
+          ToolCall(
+            id: 'call_123',
+            function: FunctionCallResult(
+              name: 'get_weather',
+              arguments: '{}',
+            ),
+          ),
+        ],
+      );
+
+      expect(choice.toolCalls, isNotNull);
+      expect(choice.toolCalls!.length, equals(1));
+      expect(choice.toolCalls!.first.id, equals('call_123'));
+      expect(choice.content, isNull);
+    });
+  });
+
+  group('ChatCompletionStreamResponse with tools', () {
+    test('parses OpenAI tool call delta', () {
+      final json = {
+        'choices': [
+          {
+            'delta': {
+              'tool_calls': [
+                {
+                  'index': 0,
+                  'id': 'call_123',
+                  'type': 'function',
+                  'function': {
+                    'name': 'get_weather',
+                    'arguments': '{"loc',
+                  },
+                },
+              ],
+            },
+            'finish_reason': null,
+          },
+        ],
+        'model': 'gpt-4',
+      };
+
+      final response = ChatCompletionStreamResponse.fromJson(json, provider: 'openai');
+      expect(response.toolCalls, isNotNull);
+      expect(response.toolCalls!.length, equals(1));
+      expect(response.toolCalls!.first.id, equals('call_123'));
+      expect(response.toolCalls!.first.function?.name, equals('get_weather'));
+      expect(response.toolCalls!.first.function?.arguments, equals('{"loc'));
+    });
+
+    test('parses Gemini function call', () {
+      final json = {
+        'candidates': [
+          {
+            'content': {
+              'parts': [
+                {
+                  'functionCall': {
+                    'name': 'get_weather',
+                    'args': {'location': 'Paris'},
+                  },
+                },
+              ],
+            },
+            'finishReason': null,
+          },
+        ],
+      };
+
+      final response = ChatCompletionStreamResponse.fromJson(json, provider: 'google');
+      expect(response.toolCalls, isNotNull);
+      expect(response.toolCalls!.length, equals(1));
+      expect(response.toolCalls!.first.function?.name, equals('get_weather'));
+      expect(response.toolCalls!.first.function?.arguments, contains('Paris'));
+    });
+
+    test('parses Ollama tool call', () {
+      final json = {
+        'message': {
+          'content': '',
+          'tool_calls': [
+            {
+              'index': 0,
+              'type': 'function',
+              'function': {
+                'name': 'get_weather',
+                'arguments': '{"location":"Paris"}',
+              },
+            },
+          ],
+        },
+        'done': false,
+      };
+
+      final response = ChatCompletionStreamResponse.fromJson(json, provider: 'ollama');
+      expect(response.toolCalls, isNotNull);
+      expect(response.toolCalls!.length, equals(1));
+      expect(response.toolCalls!.first.function?.name, equals('get_weather'));
     });
   });
 }

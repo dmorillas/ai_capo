@@ -1,4 +1,5 @@
 import 'package:ai_capo/models/response_format.dart';
+import 'package:ai_capo/models/tool.dart';
 
 class ChatCompletionRequest {
   final String model;
@@ -11,6 +12,8 @@ class ChatCompletionRequest {
   final double? presencePenalty;
   final int? seed;
   final ResponseFormat? responseFormat;
+  final List<Tool>? tools;
+  final ToolChoice? toolChoice;
   final Map<String, dynamic>? customParameters;
 
   const ChatCompletionRequest({
@@ -24,6 +27,8 @@ class ChatCompletionRequest {
     this.presencePenalty,
     this.seed,
     this.responseFormat,
+    this.tools,
+    this.toolChoice,
     this.customParameters,
   });
 }

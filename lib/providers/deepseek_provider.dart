@@ -7,6 +7,7 @@ import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
+import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
 import 'package:ai_capo/providers/openai_compatible.dart';
 
@@ -39,7 +40,7 @@ class DeepSeekProvider implements AIProvider {
   Map<String, dynamic> _body({required List<ChatMessage> messages, required ChatCompletionRequest options}) {
     final body = <String, dynamic>{
       'model': options.model,
-      'messages': messages.map((m) => m.toJson()).toList(),
+      'messages': messages.map((m) => toMessage(m)).toList(),
       'max_tokens': options.maxTokens ?? config.defaultMaxTokens,
     };
 
@@ -50,7 +51,13 @@ class DeepSeekProvider implements AIProvider {
     if (options.stop != null) body['stop'] = options.stop;
     if (options.seed != null) body['seed'] = options.seed;
     if (options.responseFormat != null) {
-      body['response_format'] = openAICompatibleResponseFormat(options.responseFormat!);
+      body['response_format'] = toResponseFormat(options.responseFormat!);
+    }
+    if (options.tools != null && options.tools!.isNotEmpty) {
+      body['tools'] = toTools(options.tools!);
+    }
+    if (options.toolChoice != null) {
+      body['tool_choice'] = toToolChoice(options.toolChoice!);
     }
     if (options.customParameters != null) body.addAll(options.customParameters!);
 
@@ -127,7 +134,7 @@ class DeepSeekProvider implements AIProvider {
             line,
             provider: providerName,
           );
-          if (streamResponse.content.isNotEmpty) {
+          if (streamResponse.content.isNotEmpty || streamResponse.toolCalls != null) {
             yield streamResponse;
           }
           if (streamResponse.isComplete) break;
@@ -151,11 +158,31 @@ class DeepSeekProvider implements AIProvider {
     }
 
     final chatCompletionChoices = (json['choices'] as List<dynamic>)
-        .map((c) => ChatCompletionChoice(
-      index: (c['index'] as num).toInt(),
-      content: c['message']['content'] as String?,
-      finishReason: c['finish_reason'] as String?,
-    )).toList();
+        .map((c) {
+      final message = c['message'] as Map<String, dynamic>?;
+      final rawToolCalls = message?['tool_calls'] as List?;
+      List<ToolCall>? toolCalls;
+      if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
+        toolCalls = rawToolCalls.map((tc) {
+          final fn = tc['function'] as Map<String, dynamic>? ?? {};
+          return ToolCall(
+              id: tc['id'] as String? ?? '',
+              type: tc['type'] as String? ?? 'function',
+              function: FunctionCallResult(
+                name: fn['name'] as String? ?? '',
+                arguments: fn['arguments'] as String? ?? '{}',
+              )
+          );
+        }).toList();
+      }
+
+      return ChatCompletionChoice(
+        index: (c['index'] as num).toInt(),
+        content: message?['content'] as String?,
+        finishReason: c['finish_reason'] as String?,
+        toolCalls: toolCalls,
+      );
+    }).toList();
 
     return ChatCompletionResponse(
       model: json['model'] as String?,

@@ -7,6 +7,7 @@ import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
+import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
 
 class AnthropicProvider implements AIProvider {
@@ -43,18 +44,80 @@ class AnthropicProvider implements AIProvider {
     };
   }
 
+  List<Map<String, dynamic>> _tools(List<Tool> tools) {
+    return tools.map((t) => {
+      'name': t.name,
+      if (t.description != null) 'description': t.description,
+      if (t.parameters != null)
+        'input_schema': {
+          'type': 'object',
+          'properties': t.parameters,
+          if (t.required != null && t.required!.isNotEmpty) 'required': t.required,
+        }
+    }).toList();
+  }
+
+  Map<String, dynamic>? _toolChoice(ToolChoice choice) {
+    return switch (choice) {
+      ToolChoiceAuto() => {'type': 'auto'},
+      ToolChoiceNone() => {'type': 'none'},
+      ToolChoiceRequired() => {'type': 'any'},
+      ToolChoiceFunction(:final name) => {'type': 'tool', 'name': name},
+    };
+  }
+
+  List<Map<String, dynamic>> _messages(List<ChatMessage> messages) {
+    final result = <Map<String, dynamic>>[];
+
+    for (final message in messages) {
+      if (message.role == MessageRole.system) continue;
+
+      if (message.role == MessageRole.tool) {
+        result.add({
+          'role': 'user',
+          'content': [
+            {
+              'type': 'tool_result',
+              'tool_use_id': message.toolCallId,
+              'content': message.content,
+            },
+          ],
+        });
+      } else if (message.role == MessageRole.assistant && message.toolCalls != null && message.toolCalls!.isNotEmpty) {
+        final content = <Map<String, dynamic>>[];
+        if (message.content.isNotEmpty) {
+          content.add({'type': 'text', 'text': message.content});
+        }
+        for (final tc in message.toolCalls!) {
+          content.add({
+            'type': 'tool_use',
+            'id': tc.id,
+            'name': tc.function.name,
+            'input': jsonDecode(tc.function.arguments ?? "{}"),
+          });
+        }
+        result.add({
+          'role': 'assistant',
+          'content': content,
+        });
+      } else {
+        result.add({
+          'role': message.role == MessageRole.assistant ? 'assistant' : 'user',
+          'content': message.content,
+        });
+      }
+    }
+
+    return result;
+  }
+
   Map<String, dynamic> _body({required List<ChatMessage> messages, required ChatCompletionRequest options}) {
     final systemMessage = messages.where((m) => m.role == MessageRole.system).toList();
     final conversationMessages = messages.where((m) => m.role != MessageRole.system).toList();
 
     final body = <String, dynamic>{
       'model': options.model,
-      'messages': conversationMessages
-          .map((m) => {
-        'role': m.role == MessageRole.assistant ? 'assistant' : 'user',
-        'content': m.content,
-      },
-      ).toList(),
+      'messages': _messages(conversationMessages),
       'max_tokens': options.maxTokens ?? config.defaultMaxTokens,
     };
 
@@ -71,6 +134,12 @@ class AnthropicProvider implements AIProvider {
     if (options.topP != null) body['top_p'] = options.topP;
     if (options.topK != null) body['top_k'] = options.topK;
     if (options.stop != null) body['stop_sequences'] = options.stop;
+    if (options.tools != null && options.tools!.isNotEmpty) {
+      body['tools'] = _tools(options.tools!);
+    }
+    if (options.toolChoice != null) {
+      body['tool_choice'] = _toolChoice(options.toolChoice!);
+    }
     if (options.responseFormat != null) {
       final format = options.responseFormat!;
       switch (format.type) {
@@ -159,6 +228,10 @@ class AnthropicProvider implements AIProvider {
         );
       }
 
+      String? currentToolId;
+      String? currentToolName;
+      final accumulatedToolArgs = StringBuffer();
+
       await for (final chunk in streamedResponse.stream.transform(utf8.decoder)) {
         for (final line in chunk.split('\n')) {
           if (line.trim().isEmpty || !line.startsWith('data:')) continue;
@@ -174,16 +247,53 @@ class AnthropicProvider implements AIProvider {
 
           try {
             final json = jsonDecode(data) as Map<String, dynamic>;
-            if (json['type'] == 'content_block_delta') {
+            final type = json['type'] as String?;
+
+            if (type == 'content_block_start') {
+              final block = json['content_block'] as Map<String, dynamic>?;
+              if (block?['type'] == 'tool_use') {
+                currentToolId = block?['id'] as String?;
+                currentToolName = block?['name'] as String?;
+                accumulatedToolArgs.clear();
+              }
+            } else if (type == 'content_block_delta') {
               final delta = json['delta'] as Map<String, dynamic>?;
-              final text = delta?['text'] as String? ?? '';
-              yield ChatCompletionStreamResponse(
-                content: text,
-                isComplete: false,
-                model: json['model'] as String?,
-                provider: providerName,
-              );
-            } else if (json['type'] == 'message_stop') {
+              if (delta?['type'] == 'text_delta') {
+                final text = delta?['text'] as String? ?? '';
+                yield ChatCompletionStreamResponse(
+                  content: text,
+                  isComplete: false,
+                  model: json['model'] as String?,
+                  provider: providerName,
+                );
+              } else if (delta?['type'] == 'input_json_delta') {
+                final partial = delta?['partial_json'] as String? ?? '';
+                accumulatedToolArgs.write(partial);
+              }
+            } else if (type == 'content_block_stop') {
+              if (currentToolId != null && currentToolName != null) {
+                yield ChatCompletionStreamResponse(
+                  content: '',
+                  isComplete: false,
+                  model: json['model'] as String?,
+                  provider: providerName,
+                  toolCalls: [
+                    ToolCallDelta(
+                      index: 0,
+                      id: currentToolId,
+                      type: 'function',
+                      function: FunctionCallResult(
+                        name: currentToolName,
+                        arguments: accumulatedToolArgs.toString(),
+                      ),
+                    ),
+                  ],
+                );
+                currentToolId = null;
+                currentToolName = null;
+                accumulatedToolArgs.clear();
+              }
+            } else if (type == 'message_stop') {
               yield ChatCompletionStreamResponse(
                 content: '',
                 isComplete: true,
@@ -202,11 +312,22 @@ class AnthropicProvider implements AIProvider {
   ChatCompletionResponse _parseResponse(Map<String, dynamic> json) {
     final content = json['content'] as List?;
     String text = '';
+    List<ToolCall>? toolCalls;
 
     if (content != null) {
       for (final block in content) {
         if (block['type'] == 'text') {
           text += block['text'] as String? ?? '';
+        } else if (block['type'] == 'tool_use') {
+          toolCalls ??= [];
+          toolCalls.add(ToolCall(
+            id: block['id'] as String? ?? '',
+            type: 'function',
+            function: FunctionCallResult(
+              name: block['name'] as String? ?? '',
+              arguments: jsonEncode(block['input']),
+            ),
+          ));
         }
       }
     }
@@ -217,8 +338,9 @@ class AnthropicProvider implements AIProvider {
       choices: [
         ChatCompletionChoice(
           index: 0,
-          content: text,
+          content: text.isNotEmpty ? text : null,
           finishReason: json['stop_reason'] as String?,
+          toolCalls: toolCalls,
         ),
       ],
       usage: json['usage'],
