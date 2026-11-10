@@ -37,10 +37,7 @@ void main() {
     });
 
     test('fromId throws for unknown provider', () {
-      expect(
-        () => ProviderType.fromId('unknown'),
-        throwsArgumentError,
-      );
+      expect(() => ProviderType.fromId('unknown'), throwsArgumentError);
     });
 
     test('toString returns id', () {
@@ -339,7 +336,9 @@ void main() {
           'candidates': [
             {
               'content': {
-                'parts': [{'text': 'Hello from Gemini'}],
+                'parts': [
+                  {'text': 'Hello from Gemini'},
+                ],
               },
               'finishReason': null,
             },
@@ -360,7 +359,9 @@ void main() {
           'candidates': [
             {
               'content': {
-                'parts': [{'text': 'Done'}],
+                'parts': [
+                  {'text': 'Done'},
+                ],
               },
               'finishReason': 'STOP',
             },
@@ -500,10 +501,7 @@ void main() {
     });
 
     test('creates with details', () {
-      const exception = AIException(
-        'Test error',
-        details: {'key': 'value'},
-      );
+      const exception = AIException('Test error', details: {'key': 'value'});
       expect(exception.details, containsPair('key', 'value'));
     });
 
@@ -655,10 +653,7 @@ void main() {
     });
 
     test('supports nullable function fields', () {
-      const toolCall = ToolCall(
-        id: 'call_123',
-        function: FunctionCallResult(),
-      );
+      const toolCall = ToolCall(id: 'call_123', function: FunctionCallResult());
 
       expect(toolCall.function.name, isNull);
       expect(toolCall.function.arguments, isNull);
@@ -778,12 +773,7 @@ void main() {
     test('creates with tools', () {
       final request = ChatCompletionRequest(
         model: 'gpt-4',
-        tools: [
-          const Tool(
-            name: 'get_weather',
-            description: 'Get weather',
-          ),
-        ],
+        tools: [const Tool(name: 'get_weather', description: 'Get weather')],
       );
 
       expect(request.tools, isNotNull);
@@ -810,10 +800,7 @@ void main() {
         toolCalls: [
           ToolCall(
             id: 'call_123',
-            function: FunctionCallResult(
-              name: 'get_weather',
-              arguments: '{}',
-            ),
+            function: FunctionCallResult(name: 'get_weather', arguments: '{}'),
           ),
         ],
       );
@@ -836,10 +823,7 @@ void main() {
                   'index': 0,
                   'id': 'call_123',
                   'type': 'function',
-                  'function': {
-                    'name': 'get_weather',
-                    'arguments': '{"loc',
-                  },
+                  'function': {'name': 'get_weather', 'arguments': '{"loc'},
                 },
               ],
             },

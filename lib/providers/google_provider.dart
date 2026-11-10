@@ -1,3 +1,7 @@
+/// The Google Gemini implementation of [AIProvider], built on Firebase AI
+/// Logic.
+library;
+
 import 'dart:convert';
 import 'package:firebase_ai/firebase_ai.dart' hide Tool;
 import 'package:firebase_ai/firebase_ai.dart' as firebase show Tool;
@@ -12,13 +16,27 @@ import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/models/tool.dart' as ai_capo_tool;
 import 'package:ai_capo/providers/ai_provider.dart';
 
+/// The [AIProvider] implementation for Google Gemini.
+///
+/// This provider talks to Gemini models through Firebase AI Logic
+/// (`FirebaseAI.agentPlatform()`), so the app must initialize Firebase
+/// (for example with `Firebase.initializeApp()`) before using it. Firebase AI
+/// Logic supports Android, iOS, macOS and the Web.
+///
+/// Tool results in [MessageRole.tool] messages must be valid JSON, since they
+/// are decoded and sent back as function responses.
 class GoogleProvider implements AIProvider {
+  /// The name of this provider (`google`).
   @override
   final String providerName = 'google';
 
+  /// The configuration (timeout, defaults) used by this provider.
   final AIConfig config;
   final FirebaseAI _firebaseAI;
 
+  /// Creates a Google provider with the given [config].
+  ///
+  /// An optional HTTP [client] can be injected, for example in tests.
   GoogleProvider({required this.config, http.Client? client})
     : _firebaseAI = FirebaseAI.agentPlatform();
 
@@ -34,8 +52,8 @@ class GoogleProvider implements AIProvider {
       frequencyPenalty: options.frequencyPenalty,
       responseMimeType: format != null ? 'application/json' : null,
       responseJsonSchema: format != null && format.type == ResponseFormatType.jsonSchema
-          ? format.schema
-          : null,
+              ? format.schema
+              : null,
     );
   }
 
@@ -44,7 +62,9 @@ class GoogleProvider implements AIProvider {
       final schemaParams = <String, Schema>{};
       if (t.parameters != null) {
         for (final entry in t.parameters!.entries) {
-          schemaParams[entry.key] = _buildSchema(entry.value as Map<String, dynamic>);
+          schemaParams[entry.key] = _buildSchema(
+            entry.value as Map<String, dynamic>,
+          );
         }
       }
       return firebase.Tool.functionDeclarations([
@@ -68,17 +88,21 @@ class GoogleProvider implements AIProvider {
 
         if (properties != null) {
           for (final entry in properties.entries) {
-            propertySchemas[entry.key] = _buildSchema(entry.value as Map<String, dynamic>);
+            propertySchemas[entry.key] = _buildSchema(
+              entry.value as Map<String, dynamic>,
+            );
           }
         }
 
         return Schema.object(
           properties: propertySchemas,
-          optionalProperties: requiredFields != null
-              ? (List<String>.from(
-                  (jsonSchema['properties'] as Map<String, dynamic>).keys
-                      .where((k) => !requiredFields.contains(k))))
-              : null,
+          optionalProperties:
+              requiredFields != null
+                  ? (List<String>.from(
+                    (jsonSchema['properties'] as Map<String, dynamic>).keys
+                        .where((k) => !requiredFields.contains(k)),
+                  ))
+                  : null,
           description: jsonSchema['description'] as String?,
         );
       case 'array':
@@ -107,11 +131,16 @@ class GoogleProvider implements AIProvider {
     }
   }
 
+  /// Sends [messages] to Google Gemini and returns the complete response.
   @override
   Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
     final generationConfig = _generationConfig(options);
 
-    final systemMessage = messages.where((message) => message.role == MessageRole.system).firstOrNull?.content;
+    final systemMessage =
+        messages
+            .where((message) => message.role == MessageRole.system)
+            .firstOrNull
+            ?.content;
 
     final tools = options.tools != null ? _firebaseTools(options.tools!) : null;
 
@@ -133,11 +162,17 @@ class GoogleProvider implements AIProvider {
     }
   }
 
+  /// Sends [messages] to Google Gemini and streams the response as it is
+  /// generated.
   @override
   Stream<ChatCompletionStreamResponse> streamChatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async* {
     final generationConfig = _generationConfig(options);
 
-    final systemMessage = messages.where((message) => message.role == MessageRole.system).firstOrNull?.content;
+    final systemMessage =
+        messages
+            .where((message) => message.role == MessageRole.system)
+            .firstOrNull
+            ?.content;
 
     final tools = options.tools != null ? _firebaseTools(options.tools!) : null;
 
@@ -157,29 +192,30 @@ class GoogleProvider implements AIProvider {
         if (response.candidates.isEmpty) continue;
 
         final candidate = response.candidates.first;
-        final text = candidate.content.parts
-            .whereType<TextPart>()
-            .map((p) => p.text)
-            .join();
+        final text =
+            candidate.content.parts
+                .whereType<TextPart>()
+                .map((p) => p.text)
+                .join();
         final isComplete = candidate.finishReason != null;
 
         List<ai_capo_tool.ToolCallDelta>? toolCalls;
         final functionParts = candidate.content.parts.whereType<FunctionCall>().toList();
         if (functionParts.isNotEmpty) {
           toolCalls = functionParts.asMap().entries.map((entry) {
-            final jsonMap = entry.value.toJson() as Map<String, dynamic>;
-            final thoughtSignature = jsonMap['thoughtSignature'] as String?;
+                final jsonMap = entry.value.toJson() as Map<String, dynamic>;
+                final thoughtSignature = jsonMap['thoughtSignature'] as String?;
 
-            return ai_capo_tool.ToolCallDelta(
-              index: entry.key,
-              type: 'function',
-              function: ai_capo_tool.FunctionCallResult(
-                name: entry.value.name,
-                arguments: jsonEncode(entry.value.args),
-              ),
-              thoughtSignature: thoughtSignature,
-            );
-          }).toList();
+                return ai_capo_tool.ToolCallDelta(
+                  index: entry.key,
+                  type: 'function',
+                  function: ai_capo_tool.FunctionCallResult(
+                    name: entry.value.name,
+                    arguments: jsonEncode(entry.value.args),
+                  ),
+                  thoughtSignature: thoughtSignature,
+                );
+              }).toList();
         }
 
         if (text.isNotEmpty || toolCalls != null) {
@@ -207,10 +243,12 @@ class GoogleProvider implements AIProvider {
       if (message.role == MessageRole.system) continue;
 
       if (message.role == MessageRole.tool && message.toolCallId != null) {
-        contents.add(Content.functionResponse(
-          message.toolCallId!,
-          jsonDecode(message.content) as Map<String, dynamic>,
-        ));
+        contents.add(
+          Content.functionResponse(
+            message.toolCallId!,
+            jsonDecode(message.content) as Map<String, dynamic>,
+          ),
+        );
       } else if (message.role == MessageRole.assistant && message.toolCalls != null && message.toolCalls!.isNotEmpty) {
         final parts = <Part>[];
         if (message.content.isNotEmpty) {
@@ -218,15 +256,22 @@ class GoogleProvider implements AIProvider {
         }
         for (final tc in message.toolCalls!) {
           if (tc.thoughtSignature != null) {
-            parts.add(UnknownPart({
-              'functionCall': {
-                'name': tc.function.name ?? "",
-                'args': jsonDecode(tc.function.arguments ?? "{}") as Map<String, dynamic>
-              },
-              'thoughtSignature': tc.thoughtSignature,
-            }));
+            parts.add(
+              UnknownPart({
+                'functionCall': {
+                  'name': tc.function.name ?? "",
+                  'args': jsonDecode(tc.function.arguments ?? "{}") as Map<String, dynamic>,
+                },
+                'thoughtSignature': tc.thoughtSignature,
+              }),
+            );
           } else {
-             parts.add(FunctionCall(tc.function.name ?? "", jsonDecode(tc.function.arguments ?? "{}") as Map<String, dynamic>));
+            parts.add(
+              FunctionCall(
+                tc.function.name ?? "",
+                jsonDecode(tc.function.arguments ?? "{}") as Map<String, dynamic>,
+              ),
+            );
           }
         }
         contents.add(Content('model', parts));
@@ -241,39 +286,41 @@ class GoogleProvider implements AIProvider {
 
   ChatCompletionResponse _parseResponse(String model, GenerateContentResponse response) {
     final choices = response.candidates.asMap().entries.map((entry) {
-      final idx = entry.key;
-      final candidate = entry.value;
+          final idx = entry.key;
+          final candidate = entry.value;
 
-      String text = '';
-      List<ai_capo_tool.ToolCall>? toolCalls;
+          String text = '';
+          List<ai_capo_tool.ToolCall>? toolCalls;
 
-      for (final part in candidate.content.parts) {
-        if (part is TextPart) {
-          text += part.text;
-        } else if (part is FunctionCall) {
-          toolCalls ??= [];
-          final jsonMap = part.toJson() as Map<String, dynamic>;
-          final thoughtSignature = jsonMap['thoughtSignature'] as String?;
+          for (final part in candidate.content.parts) {
+            if (part is TextPart) {
+              text += part.text;
+            } else if (part is FunctionCall) {
+              toolCalls ??= [];
+              final jsonMap = part.toJson() as Map<String, dynamic>;
+              final thoughtSignature = jsonMap['thoughtSignature'] as String?;
 
-          toolCalls.add(ai_capo_tool.ToolCall(
-            id: part.name,
-            type: 'function',
-            function: ai_capo_tool.FunctionCallResult(
-              name: part.name,
-              arguments: jsonEncode(part.args),
-            ),
-            thoughtSignature: thoughtSignature,
-          ));
-        }
-      }
+              toolCalls.add(
+                ai_capo_tool.ToolCall(
+                  id: part.name,
+                  type: 'function',
+                  function: ai_capo_tool.FunctionCallResult(
+                    name: part.name,
+                    arguments: jsonEncode(part.args),
+                  ),
+                  thoughtSignature: thoughtSignature,
+                ),
+              );
+            }
+          }
 
-      return ChatCompletionChoice(
-        index: idx,
-        content: text.isNotEmpty ? text : null,
-        finishReason: candidate.finishReason.toString(),
-        toolCalls: toolCalls,
-      );
-    }).toList();
+          return ChatCompletionChoice(
+            index: idx,
+            content: text.isNotEmpty ? text : null,
+            finishReason: candidate.finishReason.toString(),
+            toolCalls: toolCalls,
+          );
+        }).toList();
 
     return ChatCompletionResponse(
       model: model,
@@ -282,7 +329,7 @@ class GoogleProvider implements AIProvider {
       usage: {
         "totalTokenCount": response.usageMetadata?.totalTokenCount ?? 0,
         "promptTokenCount": response.usageMetadata?.promptTokenCount ?? 0,
-        "candidatesTokenCount": response.usageMetadata?.candidatesTokenCount ?? 0
+        "candidatesTokenCount": response.usageMetadata?.candidatesTokenCount ?? 0,
       },
       timestamp: DateTime.now(),
     );

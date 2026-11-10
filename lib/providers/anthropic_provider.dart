@@ -1,3 +1,6 @@
+/// The Anthropic Claude implementation of [AIProvider].
+library;
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ai_capo/models/config.dart';
@@ -10,17 +13,32 @@ import 'package:ai_capo/models/stream_response.dart';
 import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
 
+/// The [AIProvider] implementation for Anthropic Claude.
+///
+/// Requests are sent to `https://api.anthropic.com/v1/messages` using
+/// [AIConfig.apiKey] and [AIConfig.providerVersion] (the required
+/// `anthropic-version` header). System messages are translated to the
+/// Anthropic `system` parameter, and tool results to `tool_result` blocks.
+///
+/// Anthropic does not support schema-less JSON output: requesting
+/// [ResponseFormatType.jsonObject] throws an [AIModelNotSupportedException].
 class AnthropicProvider implements AIProvider {
   final String _baseUrl = 'https://api.anthropic.com/v1';
 
+  /// The name of this provider (`anthropic`).
   @override
   final String providerName = 'anthropic';
 
+  /// The configuration (API key, version, timeout, defaults) used by this
+  /// provider.
   final AIConfig config;
   final http.Client _client;
 
+  /// Creates an Anthropic provider with the given [config].
+  ///
+  /// An optional HTTP [client] can be injected, for example in tests.
   AnthropicProvider({required this.config, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   Map<String, String> _headers() {
     if (config.apiKey == null || config.apiKey!.isEmpty) {
@@ -41,20 +59,23 @@ class AnthropicProvider implements AIProvider {
       'Content-Type': 'application/json',
       'X-Api-Key': config.apiKey!,
       'anthropic-version': config.providerVersion!,
+      'anthropic-dangerous-direct-browser-access': 'true',
     };
   }
 
   List<Map<String, dynamic>> _tools(List<Tool> tools) {
     return tools.map((t) => {
-      'name': t.name,
-      if (t.description != null) 'description': t.description,
-      if (t.parameters != null)
-        'input_schema': {
-          'type': 'object',
-          'properties': t.parameters,
-          if (t.required != null && t.required!.isNotEmpty) 'required': t.required,
-        }
-    }).toList();
+            'name': t.name,
+            if (t.description != null) 'description': t.description,
+            if (t.parameters != null)
+              'input_schema': {
+                'type': 'object',
+                'properties': t.parameters,
+                if (t.required != null && t.required!.isNotEmpty) 'required': t.required,
+              },
+          },
+        )
+        .toList();
   }
 
   Map<String, dynamic>? _toolChoice(ToolChoice choice) {
@@ -96,10 +117,7 @@ class AnthropicProvider implements AIProvider {
             'input': jsonDecode(tc.function.arguments ?? "{}"),
           });
         }
-        result.add({
-          'role': 'assistant',
-          'content': content,
-        });
+        result.add({'role': 'assistant', 'content': content});
       } else {
         result.add({
           'role': message.role == MessageRole.assistant ? 'assistant' : 'user',
@@ -123,10 +141,7 @@ class AnthropicProvider implements AIProvider {
 
     if (systemMessage.isNotEmpty) {
       body['system'] = [
-        {
-          "text": systemMessage.first.content,
-          "type": "text"
-        }
+        {"text": systemMessage.first.content, "type": "text"},
       ];
     }
 
@@ -151,10 +166,7 @@ class AnthropicProvider implements AIProvider {
           );
         case ResponseFormatType.jsonSchema:
           body['output_config'] = {
-            'format': {
-              'type': 'json_schema',
-              'schema': format.schema,
-            },
+            'format': {'type': 'json_schema', 'schema': format.schema},
           };
       }
     }
@@ -165,16 +177,17 @@ class AnthropicProvider implements AIProvider {
     return body;
   }
 
+  /// Sends [messages] to Anthropic and returns the complete response.
   @override
   Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
     final body = _body(messages: messages, options: options);
 
     try {
       final response = await _client.post(
-        Uri.parse('$_baseUrl/messages'),
-        headers: _headers(),
-        body: jsonEncode(body),
-      ).timeout(config.timeout);
+            Uri.parse('$_baseUrl/messages'),
+            headers: _headers(),
+            body: jsonEncode(body),
+          ).timeout(config.timeout);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -205,10 +218,11 @@ class AnthropicProvider implements AIProvider {
     }
   }
 
+  /// Sends [messages] to Anthropic and streams the response as it is
+  /// generated.
   @override
   Stream<ChatCompletionStreamResponse> streamChatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async* {
-    final body = _body(messages: messages, options: options)
-      ..['stream'] = true;
+    final body = _body(messages: messages, options: options)..['stream'] = true;
 
     try {
       final request = http.Request('POST', Uri.parse('$_baseUrl/messages'));
@@ -320,14 +334,16 @@ class AnthropicProvider implements AIProvider {
           text += block['text'] as String? ?? '';
         } else if (block['type'] == 'tool_use') {
           toolCalls ??= [];
-          toolCalls.add(ToolCall(
-            id: block['id'] as String? ?? '',
-            type: 'function',
-            function: FunctionCallResult(
-              name: block['name'] as String? ?? '',
-              arguments: jsonEncode(block['input']),
+          toolCalls.add(
+            ToolCall(
+              id: block['id'] as String? ?? '',
+              type: 'function',
+              function: FunctionCallResult(
+                name: block['name'] as String? ?? '',
+                arguments: jsonEncode(block['input']),
+              ),
             ),
-          ));
+          );
         }
       }
     }
@@ -349,6 +365,7 @@ class AnthropicProvider implements AIProvider {
     );
   }
 
+  /// Closes the underlying HTTP client and releases its resources.
   void dispose() {
     _client.close();
   }

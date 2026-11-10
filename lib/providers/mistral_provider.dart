@@ -1,3 +1,6 @@
+/// The Mistral AI implementation of [AIProvider].
+library;
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ai_capo/models/config.dart';
@@ -10,17 +13,27 @@ import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
 import 'package:ai_capo/providers/openai_compatible.dart';
 
+/// The [AIProvider] implementation for Mistral AI.
+///
+/// Requests are sent to `https://api.mistral.ai/v1/chat/completions` using
+/// the key from [AIConfig.apiKey], and support completions, streaming,
+/// structured output and tool calling.
 class MistralProvider implements AIProvider {
   final String _baseUrl = 'https://api.mistral.ai/v1';
 
+  /// The name of this provider (`mistral`).
   @override
   final String providerName = 'mistral';
 
+  /// The configuration (API key, timeout, defaults) used by this provider.
   final AIConfig config;
   final http.Client _client;
 
+  /// Creates a Mistral provider with the given [config].
+  ///
+  /// An optional HTTP [client] can be injected, for example in tests.
   MistralProvider({required this.config, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   Map<String, String> _headers() {
     final key = config.apiKey;
@@ -30,10 +43,7 @@ class MistralProvider implements AIProvider {
         provider: 'mistral',
       );
     }
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $key',
-    };
+    return {'Content-Type': 'application/json', 'Authorization': 'Bearer $key'};
   }
 
   Map<String, dynamic> _body({required List<ChatMessage> messages, required ChatCompletionRequest options}) {
@@ -63,16 +73,17 @@ class MistralProvider implements AIProvider {
     return body;
   }
 
+  /// Sends [messages] to Mistral and returns the complete response.
   @override
   Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
     final body = _body(messages: messages, options: options);
 
     try {
       final response = await _client.post(
-        Uri.parse('$_baseUrl/chat/completions'),
-        headers: _headers(),
-        body: jsonEncode(body),
-      ).timeout(config.timeout);
+            Uri.parse('$_baseUrl/chat/completions'),
+            headers: _headers(),
+            body: jsonEncode(body),
+          ).timeout(config.timeout);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -103,6 +114,7 @@ class MistralProvider implements AIProvider {
     }
   }
 
+  /// Sends [messages] to Mistral and streams the response as it is generated.
   @override
   Stream<ChatCompletionStreamResponse> streamChatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async* {
     final body = _body(messages: messages, options: options);
@@ -110,8 +122,8 @@ class MistralProvider implements AIProvider {
 
     try {
       final request = http.Request('POST', Uri.parse('$_baseUrl/chat/completions'))
-        ..headers.addAll(_headers())
-        ..body = jsonEncode(body);
+            ..headers.addAll(_headers())
+            ..body = jsonEncode(body);
 
       final streamedResponse = await _client
           .send(request)
@@ -151,17 +163,17 @@ class MistralProvider implements AIProvider {
               final rawToolCalls = delta?['tool_calls'] as List?;
               if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
                 toolCalls = rawToolCalls.cast<Map<String, dynamic>>().map((tc) {
-                  final fn = tc['function'] as Map<String, dynamic>? ?? {};
-                  return ToolCallDelta(
-                    index: tc['index'] as int? ?? 0,
-                    id: tc['id'] as String?,
-                    type: tc['type'] as String? ?? 'function',
-                    function: FunctionCallResult(
-                      name: fn['name'] as String? ?? '',
-                      arguments: fn['arguments'] as String? ?? '{}',
-                    )
-                  );
-                }).toList();
+                      final fn = tc['function'] as Map<String, dynamic>? ?? {};
+                      return ToolCallDelta(
+                        index: tc['index'] as int? ?? 0,
+                        id: tc['id'] as String?,
+                        type: tc['type'] as String? ?? 'function',
+                        function: FunctionCallResult(
+                          name: fn['name'] as String? ?? '',
+                          arguments: fn['arguments'] as String? ?? '{}',
+                        ),
+                      );
+                    }).toList();
               }
 
               yield ChatCompletionStreamResponse(
@@ -184,32 +196,34 @@ class MistralProvider implements AIProvider {
   }
 
   ChatCompletionResponse _parseResponse(Map<String, dynamic> json) {
-    final choices = (json['choices'] as List<dynamic>).map((c) {
-      final message = c['message'] as Map<String, dynamic>?;
-      final rawToolCalls = message?['tool_calls'] as List?;
+    final choices =
+        (json['choices'] as List<dynamic>).map((c) {
+          final message = c['message'] as Map<String, dynamic>?;
+          final rawToolCalls = message?['tool_calls'] as List?;
 
-      List<ToolCall>? toolCalls;
-      if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
-        toolCalls = rawToolCalls.cast<Map<String, dynamic>>().map((tc) {
-          final fn = tc['function'] as Map<String, dynamic>? ?? {};
-          return ToolCall(
-              id: tc['id'] as String? ?? '',
-              type: tc['type'] as String? ?? 'function',
-              function: FunctionCallResult(
-                name: fn['name'] as String? ?? '',
-                arguments: fn['arguments'] as String? ?? '{}',
-              )
+          List<ToolCall>? toolCalls;
+          if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
+            toolCalls =
+                rawToolCalls.cast<Map<String, dynamic>>().map((tc) {
+                  final fn = tc['function'] as Map<String, dynamic>? ?? {};
+                  return ToolCall(
+                    id: tc['id'] as String? ?? '',
+                    type: tc['type'] as String? ?? 'function',
+                    function: FunctionCallResult(
+                      name: fn['name'] as String? ?? '',
+                      arguments: fn['arguments'] as String? ?? '{}',
+                    ),
+                  );
+                }).toList();
+          }
+
+          return ChatCompletionChoice(
+            index: (c['index'] as num).toInt(),
+            content: message?['content'] as String?,
+            finishReason: c['finish_reason'] as String?,
+            toolCalls: toolCalls,
           );
         }).toList();
-      }
-
-      return ChatCompletionChoice(
-        index: (c['index'] as num).toInt(),
-        content: message?['content'] as String?,
-        finishReason: c['finish_reason'] as String?,
-        toolCalls: toolCalls,
-      );
-    }).toList();
 
     return ChatCompletionResponse(
       model: json['model'] as String?,
@@ -221,6 +235,7 @@ class MistralProvider implements AIProvider {
     );
   }
 
+  /// Closes the underlying HTTP client and releases its resources.
   void dispose() {
     _client.close();
   }

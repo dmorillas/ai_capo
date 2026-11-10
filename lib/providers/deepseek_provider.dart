@@ -1,3 +1,6 @@
+/// The DeepSeek implementation of [AIProvider].
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -11,17 +14,27 @@ import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
 import 'package:ai_capo/providers/openai_compatible.dart';
 
+/// The [AIProvider] implementation for DeepSeek.
+///
+/// Requests are sent to `https://api.deepseek.com/v1/chat/completions` using
+/// the key from [AIConfig.apiKey], and support completions, streaming,
+/// structured output and tool calling.
 class DeepSeekProvider implements AIProvider {
   final String _baseUrl = 'https://api.deepseek.com/v1';
 
+  /// The name of this provider (`deepseek`).
   @override
   final String providerName = 'deepseek';
 
+  /// The configuration (API key, timeout, defaults) used by this provider.
   final AIConfig config;
   final http.Client _client;
 
+  /// Creates a DeepSeek provider with the given [config].
+  ///
+  /// An optional HTTP [client] can be injected, for example in tests.
   DeepSeekProvider({required this.config, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   Map<String, String> _headers() {
     final key = config.apiKey;
@@ -46,8 +59,12 @@ class DeepSeekProvider implements AIProvider {
 
     if (options.temperature != null) body['temperature'] = options.temperature;
     if (options.topP != null) body['top_p'] = options.topP;
-    if (options.frequencyPenalty != null) body['frequency_penalty'] = options.frequencyPenalty;
-    if (options.presencePenalty != null) body['presence_penalty'] = options.presencePenalty;
+    if (options.frequencyPenalty != null) {
+      body['frequency_penalty'] = options.frequencyPenalty;
+    }
+    if (options.presencePenalty != null) {
+      body['presence_penalty'] = options.presencePenalty;
+    }
     if (options.stop != null) body['stop'] = options.stop;
     if (options.seed != null) body['seed'] = options.seed;
     if (options.responseFormat != null) {
@@ -59,21 +76,24 @@ class DeepSeekProvider implements AIProvider {
     if (options.toolChoice != null) {
       body['tool_choice'] = toToolChoice(options.toolChoice!);
     }
-    if (options.customParameters != null) body.addAll(options.customParameters!);
+    if (options.customParameters != null) {
+      body.addAll(options.customParameters!);
+    }
 
     return body;
   }
 
+  /// Sends [messages] to DeepSeek and returns the complete response.
   @override
   Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
     final body = _body(messages: messages, options: options);
 
     try {
       final response = await _client.post(
-        Uri.parse('$_baseUrl/chat/completions'),
-        headers: _headers(),
-        body: jsonEncode(body),
-      ).timeout(config.timeout);
+            Uri.parse('$_baseUrl/chat/completions'),
+            headers: _headers(),
+            body: jsonEncode(body),
+          ).timeout(config.timeout);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -106,17 +126,20 @@ class DeepSeekProvider implements AIProvider {
     }
   }
 
+  /// Sends [messages] to DeepSeek and streams the response as it is generated.
   @override
   Stream<ChatCompletionStreamResponse> streamChatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async* {
-    final body = _body(messages: messages, options: options)
-      ..['stream'] = true;
+    final body = _body(messages: messages, options: options)..['stream'] = true;
 
     try {
-      final request = http.Request('POST', Uri.parse('$_baseUrl/chat/completions'))
-        ..headers.addAll(_headers())
-        ..body = jsonEncode(body);
+      final request =
+          http.Request('POST', Uri.parse('$_baseUrl/chat/completions'))
+            ..headers.addAll(_headers())
+            ..body = jsonEncode(body);
 
-      final streamedResponse = await _client.send(request).timeout(config.timeout);
+      final streamedResponse = await _client
+          .send(request)
+          .timeout(config.timeout);
 
       if (streamedResponse.statusCode != 200) {
         final errorBody = await streamedResponse.stream.bytesToString();
@@ -157,32 +180,33 @@ class DeepSeekProvider implements AIProvider {
       throw AIException('No response choices received', provider: providerName);
     }
 
-    final chatCompletionChoices = (json['choices'] as List<dynamic>)
-        .map((c) {
-      final message = c['message'] as Map<String, dynamic>?;
-      final rawToolCalls = message?['tool_calls'] as List?;
-      List<ToolCall>? toolCalls;
-      if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
-        toolCalls = rawToolCalls.map((tc) {
-          final fn = tc['function'] as Map<String, dynamic>? ?? {};
-          return ToolCall(
-              id: tc['id'] as String? ?? '',
-              type: tc['type'] as String? ?? 'function',
-              function: FunctionCallResult(
-                name: fn['name'] as String? ?? '',
-                arguments: fn['arguments'] as String? ?? '{}',
-              )
+    final chatCompletionChoices =
+        (json['choices'] as List<dynamic>).map((c) {
+          final message = c['message'] as Map<String, dynamic>?;
+          final rawToolCalls = message?['tool_calls'] as List?;
+          List<ToolCall>? toolCalls;
+          if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
+            toolCalls =
+                rawToolCalls.map((tc) {
+                  final fn = tc['function'] as Map<String, dynamic>? ?? {};
+                  return ToolCall(
+                    id: tc['id'] as String? ?? '',
+                    type: tc['type'] as String? ?? 'function',
+                    function: FunctionCallResult(
+                      name: fn['name'] as String? ?? '',
+                      arguments: fn['arguments'] as String? ?? '{}',
+                    ),
+                  );
+                }).toList();
+          }
+
+          return ChatCompletionChoice(
+            index: (c['index'] as num).toInt(),
+            content: message?['content'] as String?,
+            finishReason: c['finish_reason'] as String?,
+            toolCalls: toolCalls,
           );
         }).toList();
-      }
-
-      return ChatCompletionChoice(
-        index: (c['index'] as num).toInt(),
-        content: message?['content'] as String?,
-        finishReason: c['finish_reason'] as String?,
-        toolCalls: toolCalls,
-      );
-    }).toList();
 
     return ChatCompletionResponse(
       model: json['model'] as String?,
@@ -194,6 +218,7 @@ class DeepSeekProvider implements AIProvider {
     );
   }
 
+  /// Closes the underlying HTTP client and releases its resources.
   void dispose() {
     _client.close();
   }
