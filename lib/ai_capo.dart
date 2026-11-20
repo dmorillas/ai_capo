@@ -1,3 +1,5 @@
+library;
+
 export 'exceptions/exceptions.dart';
 export 'models/config.dart';
 export 'models/message.dart';
@@ -5,6 +7,7 @@ export 'models/request.dart';
 export 'models/response.dart';
 export 'models/response_format.dart';
 export 'models/stream_response.dart';
+export 'models/tool.dart';
 export 'providers/ai_provider.dart';
 export 'providers/ai_provider_fluent.dart';
 export 'providers/provider_type.dart';
@@ -30,7 +33,17 @@ export 'providers/provider_type.dart';
 /// );
 /// print(response.choices.first.content);
 /// ```
-library;
+///
+/// A fluent alternative is available when this library is imported:
+///
+/// ```dart
+/// final response = await provider
+///     .chat(options: ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07'))
+///     .withMessages(['Hello!'])
+///     .complete();
+/// ```
+///
+/// Both styles delegate to the same provider methods and are interchangeable.
 
 import 'package:ai_capo/models/config.dart';
 import 'package:ai_capo/providers/ai_provider.dart';

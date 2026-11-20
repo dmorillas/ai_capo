@@ -4,6 +4,7 @@ import 'package:ai_capo/models/message.dart';
 import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
+import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
 
 /// Adds fluent chat request construction to an [AIProvider].
@@ -37,6 +38,19 @@ final class ChatCompletionBuilder {
   /// Appends each string as a user message.
   ChatCompletionBuilder withMessages(Iterable<String> messages) {
     return _append(messages.map((content) => ChatMessage.user(content)));
+  }
+
+  /// Appends an assistant message, optionally carrying [toolCalls].
+  ChatCompletionBuilder withAssistantMessage(
+    String content, {
+    List<ToolCall>? toolCalls,
+  }) {
+    return _append([ChatMessage.assistant(content, toolCalls: toolCalls)]);
+  }
+
+  /// Appends the result of the tool call identified by [toolCallId].
+  ChatCompletionBuilder withToolResult({ required String toolCallId, required String content }) {
+    return _append([ChatMessage.tool(toolCallId: toolCallId, content: content)]);
   }
 
   /// Appends typed messages without changing their roles or names.

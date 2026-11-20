@@ -1,4 +1,4 @@
-## Unreleased
+## 1.2.0
 * Add a fluent API for regular and streaming chat completions.
 * Export the provider-neutral API from `package:ai_capo/ai_capo.dart`.
 

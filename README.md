@@ -21,7 +21,7 @@ Add `ai_capo` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ai_capo: ^1.1.0
+  ai_capo: ^1.2.0
 ```
 
 Run `flutter pub get`.
@@ -44,7 +44,32 @@ Pass a config when requesting a provider:
 final config = AIConfig(apiKey: 'your-api-key');
 ```
 
+AI Capo offers two equivalent request styles:
+
+- **Direct API** — call `provider.chatCompletion(...)` or `provider.streamChatCompletion(...)` with an explicit message list and options.
+- **Fluent builder** — start with `provider.chat(options: ...)`, chain `.with...()` calls, then finish with `.complete()` or `.stream()`. Every chain returns a new builder, so a base builder holding a shared system prompt or tools can be reused safely.
+
+Both styles are available from `package:ai_capo/ai_capo.dart`. The `chat` extension is an extension method, so it is only visible in files that import that library (or `package:ai_capo/providers/ai_provider_fluent.dart` directly). Importing only `package:ai_capo/providers/ai_provider.dart` gives you the direct API but not `chat`.
+
 ### 3. Generate a Response
+
+Direct API:
+
+```dart
+final provider = client.getProvider(ProviderType.openai, config);
+final response = await provider.chatCompletion(
+  messages: [ChatMessage.user('What is Flutter?')],
+  options: const ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
+    temperature: 0.7,
+    maxTokens: 500,
+  ),
+);
+
+print(response.choices.first.content);
+```
+
+Fluent builder:
 
 ```dart
 final provider = client.getProvider(ProviderType.openai, config);
@@ -62,7 +87,7 @@ final response = await provider
 print(response.choices.first.content);
 ```
 
-`withMessages` appends user messages in order. Use `withSystemMessage` for a system prompt or `withChatMessages` when you need explicit roles or conversation history.
+Both produce the same request. `withMessages` appends user messages in order. Use `withSystemMessage` for a system prompt, `withAssistantMessage` / `withToolResult` when replaying a tool-calling conversation, and `withChatMessages` when you need explicit roles or conversation history.
 
 ### 4. Switch Providers
 
@@ -71,16 +96,17 @@ const anthropicConfig = AIConfig(
   apiKey: 'your-anthropic-api-key',
   providerVersion: '2023-06-01',
 );
-final anthropic = client.getProvider(
-  ProviderType.anthropic,
-  anthropicConfig,
+final anthropic = client.getProvider(ProviderType.anthropic, anthropicConfig);
+
+// Direct API
+final response = await anthropic.chatCompletion(
+  messages: [ChatMessage.user('Hello, Claude!')],
+  options: const ChatCompletionRequest(model: 'claude-sonnet-4-20250514'),
 );
-final response = await anthropic
-    .chat(
-      options: const ChatCompletionRequest(
-        model: 'claude-sonnet-4-20250514',
-      ),
-    )
+
+// Fluent builder
+final fluentResponse = await anthropic
+    .chat(options: const ChatCompletionRequest(model: 'claude-sonnet-4-20250514'))
     .withMessages(['Hello, Claude!'])
     .complete();
 ```
@@ -90,6 +116,18 @@ final response = await anthropic
 ```dart
 final provider = client.getProvider(ProviderType.openai, config);
 
+// Direct API
+await for (final chunk in provider.streamChatCompletion(
+  messages: [ChatMessage.user('Write a short poem.')],
+  options: const ChatCompletionRequest(
+    model: 'gpt-5-mini-2025-08-07',
+    temperature: 0.8,
+  ),
+)) {
+  print(chunk.content);
+}
+
+// Fluent builder
 await for (final chunk in provider
     .chat(
       options: const ChatCompletionRequest(
@@ -107,15 +145,33 @@ await for (final chunk in provider
 
 ```dart
 final provider = client.getProvider(ProviderType.openai, config);
-final response = await provider
-    .chat(
-      options: const ChatCompletionRequest(
-        model: 'gpt-5-mini-2025-08-07',
-      ),
-    )
+
+// Direct API
+final response = await provider.chatCompletion(
+  messages: [
+    ChatMessage.system('You are a helpful Python tutor.'),
+    ChatMessage.user('How do list comprehensions work?'),
+  ],
+  options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07'),
+);
+
+// Fluent builder
+final fluentResponse = await provider
+    .chat(options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07'))
     .withSystemMessage('You are a helpful Python tutor.')
     .withMessages(['How do list comprehensions work?'])
     .complete();
+```
+
+Each `with...` call returns a new builder, so you can prepare a base builder and branch it for later requests:
+
+```dart
+final tutor = provider
+    .chat(options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07'))
+    .withSystemMessage('You are a helpful Python tutor.');
+
+final explanation = await tutor.withMessages(['How do list comprehensions work?']).complete();
+final followUp = await tutor.withMessages(['Give me an example.']).complete();
 ```
 
 ---
@@ -127,9 +183,7 @@ Tool calling (also known as function calling) lets you describe functions the mo
 `Tool.parameters` is a map of **property name → JSON Schema** (not a full schema), and `Tool.required` lists the property names that must be provided.
 
 ```dart
-import 'package:ai_capo/models/message.dart';
-import 'package:ai_capo/models/request.dart';
-import 'package:ai_capo/models/tool.dart';
+import 'package:ai_capo/ai_capo.dart';
 ```
 
 ### 1. Define tools and request a completion
@@ -190,6 +244,24 @@ final finalResponse = await provider.chatCompletion(
 print(finalResponse.choices.first.content);
 ```
 
+The same conversation with the fluent builder uses `withAssistantMessage` and `withToolResult`:
+
+```dart
+final toolCall = response.choices.first.toolCalls!.first;
+
+final finalResponse = await provider
+    .chat(options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07'))
+    .withMessages(['What is the weather in Paris?'])
+    .withAssistantMessage('', toolCalls: response.choices.first.toolCalls)
+    .withToolResult(
+      toolCallId: toolCall.id,
+      content: '{"temperature": 20}',
+    )
+    .complete();
+
+print(finalResponse.choices.first.content);
+```
+
 > For Google Gemini, the tool result `content` must be valid JSON, since it is decoded before being sent as a function response.
 
 ### 3. Stream tool calls
@@ -240,6 +312,8 @@ final toolCalls = indices.map((index) => ToolCall(
   ),
 )).toList();
 ```
+
+The fluent equivalent is `provider.chat(options: ...).withMessages([...]).stream()`, passing the same `tools` and `toolChoice` through `options`.
 
 Then send the results back exactly as in the non-streaming flow.
 

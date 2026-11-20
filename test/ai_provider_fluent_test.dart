@@ -75,6 +75,35 @@ void main() {
       expect(message.name, 'assistant_name');
     });
 
+    test('appends assistant and tool messages with their metadata', () async {
+      const toolCalls = [
+        ToolCall(
+          id: 'call_1',
+          function: FunctionCallResult(
+            name: 'get_weather',
+            arguments: '{"location":"Paris"}',
+          ),
+        ),
+      ];
+
+      await provider
+          .chat(options: const ChatCompletionRequest(model: 'test-model'))
+          .withMessages(['What is the weather?'])
+          .withAssistantMessage('', toolCalls: toolCalls)
+          .withToolResult(toolCallId: 'call_1', content: '{"temperature": 20}')
+          .complete();
+
+      final messages = provider.completionCalls.single.messages;
+      expect(messages.map((message) => message.role), [
+        MessageRole.user,
+        MessageRole.assistant,
+        MessageRole.tool,
+      ]);
+      expect(messages[1].toolCalls, same(toolCalls));
+      expect(messages[2].toolCallId, 'call_1');
+      expect(messages[2].content, '{"temperature": 20}');
+    });
+
     test('can branch and reuse a builder without leaking messages', () async {
       final base = provider
           .chat(options: const ChatCompletionRequest(model: 'test-model'))
