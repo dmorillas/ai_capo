@@ -1,3 +1,6 @@
+/// The Ollama implementation of [AIProvider].
+library;
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ai_capo/models/config.dart';
@@ -7,30 +10,47 @@ import 'package:ai_capo/models/request.dart';
 import 'package:ai_capo/models/response_format.dart';
 import 'package:ai_capo/models/response.dart';
 import 'package:ai_capo/models/stream_response.dart';
+import 'package:ai_capo/models/tool.dart';
 import 'package:ai_capo/providers/ai_provider.dart';
+import 'package:ai_capo/providers/openai_compatible.dart';
 
+/// The [AIProvider] implementation for a local Ollama server.
+///
+/// Requests are sent to the server configured by [AIConfig.ollamaBaseUrl]
+/// (defaulting to `http://localhost:11434`), so no API key is required.
+/// Tools are supported; `toolChoice` is accepted by this provider but
+/// ignored by Ollama.
 class OllamaProvider implements AIProvider {
+  /// The name of this provider (`ollama`).
   @override
   final String providerName = 'ollama';
 
+  /// The configuration (base URL, timeout, defaults) used by this provider.
   final AIConfig config;
   final http.Client _client;
 
+  /// Creates an Ollama provider with the given [config].
+  ///
+  /// An optional HTTP [client] can be injected, for example in tests.
   OllamaProvider({required this.config, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   String get _baseUrl => config.ollamaBaseUrl ?? 'http://localhost:11434';
 
   Map<String, dynamic> _body({required List<ChatMessage> messages, required ChatCompletionRequest options}) {
     final body = <String, dynamic>{
       'model': options.model,
-      'messages': messages.map((m) => {'role': m.role.name, 'content': m.content}).toList(),
+      'messages': messages.map((m) => toMessage(m)).toList(),
       'stream': false,
     };
 
     body['options'] ??= {};
-    if (options.temperature != null) body['options']['temperature'] = options.temperature;
-    if (options.maxTokens != null) body['options']['num_predict'] = options.maxTokens;
+    if (options.temperature != null) {
+      body['options']['temperature'] = options.temperature;
+    }
+    if (options.maxTokens != null) {
+      body['options']['num_predict'] = options.maxTokens;
+    }
     if (options.topP != null) body['options']['top_p'] = options.topP;
     if (options.topK != null) body['options']['top_k'] = options.topK;
     if (options.stop != null) body['options']['stop'] = options.stop;
@@ -42,6 +62,9 @@ class OllamaProvider implements AIProvider {
         ResponseFormatType.jsonSchema => format.schema,
       };
     }
+    if (options.tools != null && options.tools!.isNotEmpty) {
+      body['tools'] = toTools(options.tools!);
+    }
     if (options.customParameters != null) {
       body.addAll(options.customParameters!);
     }
@@ -49,18 +72,17 @@ class OllamaProvider implements AIProvider {
     return body;
   }
 
+  /// Sends [messages] to Ollama and returns the complete response.
   @override
   Future<ChatCompletionResponse> chatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async {
     final body = _body(messages: messages, options: options);
 
     try {
       final response = await _client.post(
-        Uri.parse('$_baseUrl/api/chat'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(body),
-      ).timeout(config.timeout);
+            Uri.parse('$_baseUrl/api/chat'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          ).timeout(config.timeout);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -79,6 +101,7 @@ class OllamaProvider implements AIProvider {
     }
   }
 
+  /// Sends [messages] to Ollama and streams the response as it is generated.
   @override
   Stream<ChatCompletionStreamResponse> streamChatCompletion({required List<ChatMessage> messages, required ChatCompletionRequest options}) async* {
     final body = _body(messages: messages, options: options);
@@ -86,10 +109,8 @@ class OllamaProvider implements AIProvider {
 
     try {
       final request = http.Request('POST', Uri.parse('$_baseUrl/api/chat'))
-        ..headers.addAll({
-          'Content-Type': 'application/json',
-        })
-        ..body = jsonEncode(body);
+            ..headers.addAll({'Content-Type': 'application/json'})
+            ..body = jsonEncode(body);
 
       final streamedResponse = await _client
           .send(request)
@@ -113,11 +134,29 @@ class OllamaProvider implements AIProvider {
             final content = message?['content'] as String? ?? '';
             final done = json['done'] == true;
 
+            List<ToolCallDelta>? toolCalls;
+            final rawToolCalls = message?['tool_calls'] as List?;
+            if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
+              toolCalls = rawToolCalls.cast<Map<String, dynamic>>().map((tc) {
+                    final fn = tc['function'] as Map<String, dynamic>? ?? {};
+                    return ToolCallDelta(
+                      index: tc['index'] as int? ?? 0,
+                      id: tc['id'] as String?,
+                      type: tc['type'] as String? ?? 'function',
+                      function: FunctionCallResult(
+                        name: fn['name'] as String? ?? '',
+                        arguments: fn['arguments'] as String? ?? '{}',
+                      ),
+                    );
+                  }).toList();
+            }
+
             yield ChatCompletionStreamResponse(
               content: content,
               isComplete: done,
               model: json['model'] as String?,
               provider: providerName,
+              toolCalls: toolCalls,
             );
 
             if (done) break;
@@ -135,6 +174,22 @@ class OllamaProvider implements AIProvider {
     final int promptTokens = json['prompt_eval_count'] as int? ?? 0;
     final int completionTokens = json['eval_count'] as int? ?? 0;
 
+    final rawToolCalls = message?['tool_calls'] as List?;
+    List<ToolCall>? toolCalls;
+    if (rawToolCalls != null && rawToolCalls.isNotEmpty) {
+      toolCalls = rawToolCalls.map((tc) {
+            final fn = tc['function'] as Map<String, dynamic>? ?? {};
+            return ToolCall(
+              id: tc['id'] as String? ?? '',
+              type: tc['type'] as String? ?? 'function',
+              function: FunctionCallResult(
+                name: fn['name'] as String? ?? '',
+                arguments: fn['arguments'] as String? ?? '{}',
+              ),
+            );
+          }).toList();
+    }
+
     return ChatCompletionResponse(
       model: json['model'] as String?,
       provider: providerName,
@@ -143,6 +198,7 @@ class OllamaProvider implements AIProvider {
           index: 0,
           content: message?['content'] as String?,
           finishReason: json['done'] == true ? 'stop' : 'unknown',
+          toolCalls: toolCalls,
         ),
       ],
       usage: {
@@ -155,6 +211,9 @@ class OllamaProvider implements AIProvider {
     );
   }
 
+  /// Returns the names of the models installed on the Ollama server.
+  ///
+  /// Returns an empty list when the server cannot be reached.
   Future<List<String>> listAvailableModels() async {
     try {
       final response = await _client
@@ -172,6 +231,7 @@ class OllamaProvider implements AIProvider {
     }
   }
 
+  /// Closes the underlying HTTP client and releases its resources.
   void dispose() {
     _client.close();
   }
