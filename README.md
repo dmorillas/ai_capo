@@ -48,25 +48,41 @@ final config = AIConfig(apiKey: 'your-api-key');
 
 ```dart
 final provider = client.getProvider(ProviderType.openai, config);
-final response = await provider.chatCompletion(
-  messages: [ChatMessage.user('What is Flutter?')],
-  options: const ChatCompletionRequest(
-    model: 'gpt-5-mini-2025-08-07',
-    temperature: 0.7,
-    maxTokens: 500,
-  ),
-);
+final response = await provider
+    .chat(
+      options: const ChatCompletionRequest(
+        model: 'gpt-5-mini-2025-08-07',
+        temperature: 0.7,
+        maxTokens: 500,
+      ),
+    )
+    .withMessages(['What is Flutter?'])
+    .complete();
 
 print(response.choices.first.content);
 ```
 
+`withMessages` appends user messages in order. Use `withSystemMessage` for a system prompt or `withChatMessages` when you need explicit roles or conversation history.
+
 ### 4. Switch Providers
 
 ```dart
-final anthropic = client.getProvider(ProviderType.anthropic, config);
-final response = await anthropic.chatCompletion(
-  messages: [ChatMessage.user('Hello, Claude!')],
+const anthropicConfig = AIConfig(
+  apiKey: 'your-anthropic-api-key',
+  providerVersion: '2023-06-01',
 );
+final anthropic = client.getProvider(
+  ProviderType.anthropic,
+  anthropicConfig,
+);
+final response = await anthropic
+    .chat(
+      options: const ChatCompletionRequest(
+        model: 'claude-sonnet-4-20250514',
+      ),
+    )
+    .withMessages(['Hello, Claude!'])
+    .complete();
 ```
 
 ### 5. Stream a Response
@@ -74,10 +90,15 @@ final response = await anthropic.chatCompletion(
 ```dart
 final provider = client.getProvider(ProviderType.openai, config);
 
-await for (final chunk in provider.streamChatCompletion(
-  messages: [ChatMessage.user('Write a short poem.')],
-  options: const ChatCompletionRequest(model: 'gpt-5-mini-2025-08-07', temperature: 0.8),
-)) {
+await for (final chunk in provider
+    .chat(
+      options: const ChatCompletionRequest(
+        model: 'gpt-5-mini-2025-08-07',
+        temperature: 0.8,
+      ),
+    )
+    .withMessages(['Write a short poem.'])
+    .stream()) {
   print(chunk.content);
 }
 ```
@@ -86,12 +107,15 @@ await for (final chunk in provider.streamChatCompletion(
 
 ```dart
 final provider = client.getProvider(ProviderType.openai, config);
-final response = await provider.chatCompletion(
-  messages: [
-    ChatMessage.system('You are a helpful Python tutor.'),
-    ChatMessage.user('How do list comprehensions work?'),
-  ],
-);
+final response = await provider
+    .chat(
+      options: const ChatCompletionRequest(
+        model: 'gpt-5-mini-2025-08-07',
+      ),
+    )
+    .withSystemMessage('You are a helpful Python tutor.')
+    .withMessages(['How do list comprehensions work?'])
+    .complete();
 ```
 
 ---
@@ -256,7 +280,7 @@ final response = await provider.chatCompletion(
   messages: [ChatMessage.user('List 3 colors.')],
   options: ChatCompletionRequest(
     model: 'gpt-5-mini-2025-08-07',
-    responseFormat: const ResponseFormat(type: ResponseFormatType.jsonObject),
+    responseFormat: ResponseFormat(type: ResponseFormatType.jsonObject),
   ),
 );
 
